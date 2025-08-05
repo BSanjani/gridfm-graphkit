@@ -9,7 +9,7 @@ namespaces = false
 [project]
 name = "gridfm-graphkit"
 description = "Grid Foundation Model"
-version = "0.0.2"
+version = "0.0.3"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10,<3.13"
@@ -32,6 +32,8 @@ keywords = ["electric power grid", "foundational model", "graph neural networks"
 
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
