@@ -1,8 +1,10 @@
+from gridfm_graphkit.io.registries import MODELS_REGISTRY
 from torch_geometric.nn import GPSConv, GINEConv
 from torch import nn
 import torch
 
 
+@MODELS_REGISTRY.register("GPSTransformer")
 class GPSTransformer(nn.Module):
     """
     A GPS (Graph Transformer) model based on [GPSConv](https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.nn.conv.GPSConv.html) and [GINEConv](https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.nn.conv.GINEConv.html) layers from Pytorch Geometric.
@@ -12,49 +14,44 @@ class GPSTransformer(nn.Module):
     and finally decodes to the output dimension.
 
     Args:
-        input_dim (int): Dimension of input node features.
-        hidden_dim (int): Hidden dimension size for all layers.
-        output_dim (int): Dimension of the output node features.
-        edge_dim (int): Dimension of edge features.
-        pe_dim (int): Dimension of the positional encoding.
-            Must be less than hidden_dim.
-        num_layers (int): Number of GPSConv layers.
-        heads (int, optional): Number of attention heads in GPSConv.
-        dropout (float, optional): Dropout rate in GPSConv.
-        mask_dim (int, optional): Dimension of the mask vector.
-        mask_value (float, optional): Initial value for learnable mask parameters.
-        learn_mask (bool, optional): Whether to learn mask values as parameters.
+        args (NestedNamespace): Parameters
+
+    Attributes:
+        input_dim (int): Dimension of input node features. From ``args.model.input_dim``.
+        hidden_dim (int): Hidden dimension size for all layers. From ``args.model.hidden_size``.
+        output_dim (int): Dimension of the output node features. From ``args.model.output_dim``.
+        edge_dim (int): Dimension of edge features. From ``args.model.edge_dim``.
+        pe_dim (int): Dimension of the positional encoding. Must be less than ``hidden_dim``. From ``args.model.pe_dim``.
+        num_layers (int): Number of GPSConv layers. From ``args.model.num_layers``.
+        heads (int, optional): Number of attention heads in GPSConv. From ``args.model.attention_head``. Defaults to 1.
+        dropout (float, optional): Dropout rate in GPSConv. From ``args.model.dropout``. Defaults to 0.0.
+        mask_dim (int, optional): Dimension of the mask vector. From ``args.data.mask_dim``. Defaults to 6.
+        mask_value (float, optional): Initial value for learnable mask parameters. From ``args.data.mask_value``. Defaults to -1.0.
+        learn_mask (bool, optional): Whether to learn mask values as parameters. From ``args.data.learn_mask``. Defaults to True.
 
     Raises:
         ValueError: If `pe_dim` is not less than `hidden_dim`.
     """
 
-    def __init__(
-        self,
-        input_dim: int,
-        hidden_dim: int,
-        output_dim: int,
-        edge_dim: int,
-        pe_dim: int,
-        num_layers: int,
-        heads: int = 1,
-        dropout: float = 0.0,
-        mask_dim: int = 6,
-        mask_value: float = -1.0,
-        learn_mask: bool = True,
-    ):
-        super(GPSTransformer, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_dim = hidden_dim
-        self.edge_dim = edge_dim
-        self.pe_dim = pe_dim
-        self.heads = heads
-        self.dropout = dropout
-        self.mask_dim = mask_dim
-        self.mask_value = mask_value
-        self.learn_mask = learn_mask
+    def __init__(self, args):
+        super().__init__()
 
-        if not pe_dim < hidden_dim:
+        # === Required (no defaults in original) ===
+        self.input_dim = args.model.input_dim
+        self.hidden_dim = args.model.hidden_size
+        self.output_dim = args.model.output_dim
+        self.edge_dim = args.model.edge_dim
+        self.pe_dim = args.model.pe_dim
+        self.num_layers = args.model.num_layers
+
+        # === Optional (defaults in original) ===
+        self.heads = getattr(args.model, "attention_head", 1)
+        self.dropout = getattr(args.model, "dropout", 0.0)
+        self.mask_dim = getattr(args.data, "mask_dim", 6)
+        self.mask_value = getattr(args.data, "mask_value", -1.0)
+        self.learn_mask = getattr(args.data, "learn_mask", True)
+
+        if not self.pe_dim < self.hidden_dim:
             raise ValueError(
                 "positional encoding dimension must be smaller than model hidden dimension",
             )
@@ -62,7 +59,7 @@ class GPSTransformer(nn.Module):
         self.layers = nn.ModuleList()
 
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, self.hidden_dim - self.pe_dim),
+            nn.Linear(self.input_dim, self.hidden_dim - self.pe_dim),
             nn.LeakyReLU(),
         )
         self.input_norm = nn.BatchNorm1d(self.hidden_dim - self.pe_dim)
@@ -94,17 +91,17 @@ class GPSTransformer(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.LeakyReLU(),
-            nn.Linear(self.hidden_dim, output_dim),
+            nn.Linear(self.hidden_dim, self.output_dim),
         )
 
-        if learn_mask:
+        if self.learn_mask:
             self.mask_value = nn.Parameter(
-                torch.randn(mask_dim) + mask_value,
+                torch.randn(self.mask_dim) + self.mask_value,
                 requires_grad=True,
             )
         else:
             self.mask_value = nn.Parameter(
-                torch.zeros(mask_dim) + mask_value,
+                torch.zeros(self.mask_dim) + self.mask_value,
                 requires_grad=False,
             )
 
