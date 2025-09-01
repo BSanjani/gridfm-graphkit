@@ -1,4 +1,5 @@
 # gridfm-graphkit
+[![DOI](https://zenodo.org/badge/1007159095.svg)](https://doi.org/10.5281/zenodo.17016737)
 [![Docs](https://img.shields.io/badge/docs-available-brightgreen)](https://gridfm.github.io/gridfm-graphkit/)
 ![Coverage](https://img.shields.io/badge/coverage-83%25-yellowgreen)
 ![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-blue)
