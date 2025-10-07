@@ -8,6 +8,7 @@ import pandas as pd
 
 from lightning.pytorch.loggers import MLFlowLogger
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
+from gridfm_graphkit.training.loss import PBELoss
 import torch.nn.functional as F
 from gridfm_graphkit.datasets.globals import PQ, PV, REF, PD, QD, PG, QG, VM, VA
 
@@ -78,7 +79,7 @@ class FeatureReconstructionTask(L.LightningModule):
         if mask is not None:
             mask_value_expanded = self.model.mask_value.expand(x.shape[0], -1)
             x[:, : mask.shape[1]][mask] = mask_value_expanded[mask]
-        return self.model(x, pe, edge_index, edge_attr, batch)
+        return self.model(x, pe, edge_index, edge_attr, batch, mask)
 
     @rank_zero_only
     def on_fit_start(self):
@@ -125,6 +126,7 @@ class FeatureReconstructionTask(L.LightningModule):
             batch.edge_index,
             batch.edge_attr,
             batch.mask,
+            model=self.model,
         )
         return output, loss_dict
 
@@ -159,7 +161,6 @@ class FeatureReconstructionTask(L.LightningModule):
                 batch_size=batch.num_graphs,
                 sync_dist=True,
                 on_epoch=True,
-                prog_bar=True,
                 logger=True,
                 on_step=False,
             )
@@ -171,8 +172,36 @@ class FeatureReconstructionTask(L.LightningModule):
 
         dataset_name = self.args.data.networks[dataloader_idx]
 
+        self.node_normalizers[dataloader_idx].to(self.device)
+        self.edge_normalizers[dataloader_idx].to(self.device)
+
+        # Denormalize predictions and targets to compute Power Balance residuals.
+        # Required when using normalization methods like standardization or min-max,
+        # since physical equations (e.g., Power Balance) must operate on real-world units or per-unit (p.u.) values.
         output_denorm = self.node_normalizers[dataloader_idx].inverse_transform(output)
         target_denorm = self.node_normalizers[dataloader_idx].inverse_transform(batch.y)
+        edge_attr_denorm = (
+            self.edge_normalizers[dataloader_idx].inverse_transform(batch.edge_attr)
+            * self.edge_normalizers[dataloader_idx].baseMVA_orig
+        )
+
+        # Convert angle from degrees to radians
+        output_denorm[:, VA] = output_denorm[:, VA] * torch.pi / 180.0
+        target_denorm[:, VA] = target_denorm[:, VA] * torch.pi / 180.0
+        p_loss = PBELoss()
+        p_loss_dict = p_loss(
+            output_denorm,
+            target_denorm,
+            batch.edge_index,
+            edge_attr_denorm,
+            batch.mask,
+        )
+        loss_dict["Active Power Loss"] = p_loss_dict["Active Power Loss"]
+        loss_dict["Reactive Power Loss"] = p_loss_dict["Reactive Power Loss"]
+
+        # Convert angle back to degrees
+        output_denorm[:, VA] = output_denorm[:, VA] * 180.0 / torch.pi
+        target_denorm[:, VA] = target_denorm[:, VA] * 180.0 / torch.pi
 
         mask_PQ = batch.x[:, PQ] == 1
         mask_PV = batch.x[:, PV] == 1
@@ -225,10 +254,6 @@ class FeatureReconstructionTask(L.LightningModule):
         loss_dict["Test loss"] = loss_dict.pop("loss").detach()
         for metric, value in loss_dict.items():
             metric_name = f"{dataset_name}/{metric}"
-            if "p.u." in metric:
-                # Denormalize metrics expressed in p.u.
-                value *= self.node_normalizers[dataloader_idx].baseMVA
-                metric_name = metric_name.replace("in p.u.", "").strip()
             self.log(
                 metric_name,
                 value,

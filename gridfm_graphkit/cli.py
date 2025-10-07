@@ -64,7 +64,7 @@ def main_cli(args):
     )
     if args.command != "train":
         print(f"Loading model weights from {args.model_path}")
-        state_dict = torch.load(args.model_path)
+        state_dict = torch.load(args.model_path, map_location="cpu")
         model.load_state_dict(state_dict)
 
     trainer = L.Trainer(

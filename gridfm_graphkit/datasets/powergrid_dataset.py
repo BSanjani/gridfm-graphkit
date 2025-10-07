@@ -202,8 +202,6 @@ class GridDatasetDisk(Dataset):
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")
         data = torch.load(file_name, weights_only=False)
-        if self.transform:
-            data = self.transform(data)
         return data
 
     def change_transform(self, new_transform):

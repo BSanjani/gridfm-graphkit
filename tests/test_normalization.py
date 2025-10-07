@@ -9,7 +9,10 @@ from gridfm_graphkit.io.param_handler import NestedNamespace
 @pytest.mark.parametrize("node_data", [True, False])
 def test_normalizer_roundtrip_registry(norm_name, node_data):
     # Example input data
-    data = torch.randn(3, 6)
+    if node_data:
+        data = torch.randn(100, 6)
+    else:
+        data = torch.randn(100, 2)
 
     # Dummy args as a dictionary and converted to NestedNamespace
     args_dict = {"data": {"baseMVA": 100}}

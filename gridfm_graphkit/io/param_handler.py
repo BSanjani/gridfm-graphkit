@@ -4,6 +4,7 @@ from gridfm_graphkit.training.loss import (
     SCELoss,
     MixedLoss,
     MSELoss,
+    LayeredWeightedPhysicsLoss,
 )
 from gridfm_graphkit.io.registries import (
     MASKING_REGISTRY,
@@ -99,6 +100,10 @@ def get_loss_function(args):
             loss_functions.append(SCELoss())
         elif loss_name == "PBE":
             loss_functions.append(PBELoss())
+        elif loss_name == "LayeredWeightedPhysicsLoss":
+            loss_functions.append(
+                LayeredWeightedPhysicsLoss(base_weight=args.training.base_weight),
+            )
         else:
             raise ValueError(f"Unknown loss function: {loss_name}")
 

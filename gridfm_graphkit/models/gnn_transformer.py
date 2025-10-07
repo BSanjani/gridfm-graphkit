@@ -74,7 +74,7 @@ class GNN_TransformerConv(nn.Module):
                 requires_grad=False,
             )
 
-    def forward(self, x, pe, edge_index, edge_attr, batch):
+    def forward(self, x, pe, edge_index, edge_attr, batch, mask=None):
         """
         Forward pass for the GPSTransformer.
 
