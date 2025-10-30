@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
 from itertools import repeat
-from .EvalUtils import DataStruct, Result, getFalseAlarmRate, getLabels, loadModel
+from EvalUtils import DataStruct, Result, getFalseAlarmRate, getLabels, loadModel
 import joblib
 import pickle
 import copy
@@ -28,7 +28,7 @@ from sklearn.model_selection import train_test_split
 
 temporary_storage='/dccstor/gridfm/sec_inf_temp/'
 data_directory="/dccstor/gridfm/PowerGraph_TP/"
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def plotAll(seenData,unseenData,seenNames, evalNames, titles, suffix):
     #plot(seenData[3],unseenData[3],seenNames,evalNames,titles[3],suffix)
@@ -293,8 +293,23 @@ def evalMI(seenData, unseenData,titles, suffix, blackbox=True,threads=4):
     for i in range(len(titles)):
         MembershipBlackBox(seenData[i],unseenData[i],titles[i],suffix)
 
-def fitSVM(data, labels):
-    if np.shape(data)[0]>70000:
+def fitSVM(dataO, labels,maxSamples=-1):
+    data=copy.copy(dataO)
+    largeData=False
+    if maxSamples>0:
+        # set maximum amount of samples to this
+        print('fit SMM max samples',maxSamples,np.shape(data)[0])
+        if np.shape(data)[0]<=maxSamples:
+            X_train, X_temp, y_train, y_temp = train_test_split(data, labels, test_size=0.2, random_state=42) 
+        else:   
+            #print(float(maxSamples),float(np.shape(data)[0]),(float(maxSamples)/float(np.shape(data)[0])))
+            perTrain = float(maxSamples)/float(np.shape(data)[0])
+            perTest = np.min([15000.0/float(np.shape(data)[0]),(1.0-perTrain)])
+            X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=perTest, train_size=perTrain, random_state=42)
+            if np.shape(X_train)[0]>70000:
+                #if we're still to large we cap as before
+                largeData= True   
+    if np.shape(data)[0]>70000 or largeData:
         #for runtime reasons, we only train on max 90,000 samples
         # per = 70000.0/float(np.shape(data)[0]) #previously
         per = 1.0-(50000.0/float(np.shape(data)[0]))
@@ -348,9 +363,37 @@ def recombine(arr, dim=1,index=-1):
                     combined[i]=combined[i]+elem
     return combined
 
+def MembershipAnalysisAblation(seenData, unseenData, suffix):
+    dataSizes = [50000,25000,12500,6250,3125,1562,781,390,195,85,42]
+    scores = []
+    baselineAcc = 0.0
+    fass = []
+    cs = []
+    gammas = []
+    kernels = []
+    for size in dataSizes:
+        fullScore, baseline, fas, c, gamma, kernel = SimpleMembershipBlackBox(seenData,unseenData, 'All', suffix, dim=len(seenData[0]),maxSamples=size) 
+        scores.append(fullScore)
+        baselineAcc = baseline #remains the same, suffices to save once
+        fass.append(fas)
+        cs.append(c)
+        gammas.append(gamma)
+        kernels.append(kernel)
+    #print SVM params to check consistency
+    print(cs, gammas, kernels)
+    #plot remainder to understand effect of known amount of data
+    plt.style.use('ggplot')
+    fig = plt.figure()
+    plt.vlines(baselineAcc,0,len(scores),colors=['silver'])
+    plt.plot(scores,c='blue')
+    plt.plot(fass,c='red')
+    plt.xlabel('Number of Samples')
+    plt.ylabel('Performance')
+    plt.savefig('plots/MI/AblationAll_'+suffix+'.pdf')
+    plt.clf()
+    plt.cla()
 
-def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1):
-    res = []
+def SimpleMembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
     # on full data - worst case / theoretically achievable
     fulltrain = recombine(seenData,dim)
     fullTest = recombine(unseenData,dim)
@@ -365,54 +408,92 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1):
         data = np.hstack((np.array(fulltrain),np.array(fullTest)))
         data = np.transpose(data)
         labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-    clf, fullScore, c, gamma, kernel = fitSVM(data, labs)
+    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
+    joblib.dump(clf, temporary_storage+'SVM/Abl'+str(maxSamples)+title+suffix+'_SVM.pickle')
+    baselineAcc = float(np.mean(labs))
+    fas = getFalseAlarmRate(clf,data,labs)
+    return fullScore, baselineAcc, fas, c, gamma, kernel
+
+
+def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
+    maxSamples = 500
+    if maxSamples>0:
+        suffix = suffix+'S'+str(maxSamples)
+    # on full data - worst case / theoretically achievable
+    fulltrain = recombine(seenData,dim)
+    fullTest = recombine(unseenData,dim)
+    if len(fulltrain)==0 or len(fullTest)==0:
+        return None
+    #compute over all datasets
+    # we know the labels, as seen / unseen corresponds to label. we gernate them on the fly
+    if dim==1:
+        labs = getLabels(len(fulltrain),len(fullTest))
+        data = np.array(fulltrain+fullTest).reshape(-1,dim)
+    else:
+        data = np.hstack((np.array(fulltrain),np.array(fullTest)))
+        data = np.transpose(data)
+        labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
+    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
     joblib.dump(clf, temporary_storage+'SVM/'+title+suffix+'_SVM.pickle')
     baselineAcc = float(np.mean(labs))
     fas = getFalseAlarmRate(clf,data,labs)
     res = DataStruct(fullScore, baselineAcc, fas, c, gamma, kernel)
     # above, we trained on a subset of everything. Now, we use only
     # two datasets and test how the SVM generalizes on the remaining things
-    for i in range(len(seenData)):
-        for j in range(len(unseenData)):
-            #take into account different dimensions (regarding error)
-            if dim ==1:
+    if dim==1:
+        for i in range(len(seenData)):
+            for j in range(len(unseenData)):
+                print('within loop',len(seenData),len(seenData[i]),len(unseenData[j]))
                 labs = getLabels(len(seenData[i]),len(unseenData[j]))
-                data = np.array(seenData[i]+unseenData[j]).reshape(-1,dim)  
-            else:
+                data = np.array(seenData[i]+unseenData[j]).reshape(-1,dim) 
+                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
+                indRes = Result(fullScore, c, gamma, kernel, i, j)
+                #now evaluate on all other datasets that we didn't use for the SVM
+                for k in range(len(seenData)):
+                    if k==i:
+                        pass       
+                    else:
+                        parScore = clf.score(np.array(seenData[k]).reshape(-1,dim),getLabels(len(seenData[k]),0))
+                        indRes.addTrainResult(parScore)
+                for k in range(len(unseenData)):
+                    if k==j:
+                        pass
+                    else:
+                        parScore = clf.score(np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
+                        fas = getFalseAlarmRate(clf,np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
+                        indRes.addTestResult(parScore)
+                        indRes.addFASResult(fas)
+                res.addResult(indRes)
+    else:
+        for i in range(len(seenData[0])):
+            for j in range(len(unseenData[0])):
                 trainD = recombine(seenData,dim,i)
                 testD = recombine(unseenData,dim,j)
                 #print(np.shape(trainD),np.shape(testD))
                 data = np.hstack((np.array(trainD),np.array(testD)))
                 data = np.transpose(data)
                 labs = getLabels(np.shape(trainD)[1],np.shape(testD)[1])
-            #train SVM
-            clf, fullScore, c, gamma, kernel = fitSVM(data, labs)
-            indRes = Result(fullScore, c, gamma, kernel, i, j)
-            #now evaluate on all other datasets that we didn't use for the SVM
-            for k in range(len(seenData)):
-                if k==i:
-                    pass       
-                else:
-                    if dim==1:
-                        parScore = clf.score(np.array(seenData[k]).reshape(-1,dim),getLabels(len(seenData[k]),0))
+                #train SVM
+                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
+                indRes = Result(fullScore, c, gamma, kernel, i, j)
+                #now evaluate on all other datasets that we didn't use for the SVM
+                for k in range(len(seenData[0])):
+                    if k==i:
+                        pass       
                     else:
                         trainTemp = recombine(seenData,dim,k)
                         parScore = clf.score(np.array(trainTemp).reshape(-1,dim),getLabels(np.shape(trainTemp)[1],0))
-                    indRes.addTrainResult(parScore)
-            for k in range(len(unseenData)):
-                if k==j:
-                    pass
-                else:
-                    if dim==1:
-                        parScore = clf.score(np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
-                        fas = getFalseAlarmRate(clf,np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
+                        indRes.addTrainResult(parScore)
+                for k in range(len(unseenData[0])):
+                    if k==j:
+                        pass
                     else:
                         testTemp = recombine(unseenData,dim,k)
                         parScore = clf.score(np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
                         fas = getFalseAlarmRate(clf,np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
-                    indRes.addTestResult(parScore)
-                    indRes.addFASResult(fas)
-            res.addResult(indRes)
+                        indRes.addTestResult(parScore)
+                        indRes.addFASResult(fas)
+                res.addResult(indRes)
     # write output setting
     print(title, suffix)
     print(res.settingsStats())
@@ -526,7 +607,7 @@ def genCasesSVMCrossEval(case='mean', featureList=[]):
     print(results[1])
       
 
-def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot, MI, runIndividualFeatures=False,step='load',data_dir_seen=[],data_dir_unseen=[]):
+def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot, MI, MIAblation=False, runIndividualFeatures=False,step='load',data_dir_seen=[],data_dir_unseen=[]):
     #print('started',graphWise,nodeWise, model12,topologyOnly)
     data_dir = temporary_storage
     unseenDataNames = ['39 epri','60c','1354','197 snem','300','73 rts','14','5 pfm']
@@ -637,6 +718,10 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
                     with open(data_dir+featureNames[i]+suffix+'varTrainTemp.pickle', 'rb') as f:
                         seenVar.append(pickle.load(f))
             #sanity check Length - not neccessary, loading for feature would fail
+            print('sanity check data loading')
+            for i in range(maxIter):
+                print(len(seenMean[i]))
+                print(len(unseenMean[i]))
         except FileNotFoundError:
             print(featureNames[i]+suffix, 'NOT FOUND!!')
             plot = False
@@ -645,6 +730,8 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
         plotAll(seenMean,unseenMean,seenNames, unseenDataNames, featureNames, suffix+'mean')
         if not nodeWise:
             plotAll(seenVar,unseenVar,seenNames, unseenDataNames, featureNames, suffix+'var')
+    if MIAblation:
+        MembershipAnalysisAblation(seenMean, unseenMean, suffix+'mean')
     if MI:
         #check membership
         if not removeNan and not runIndividualFeatures:

@@ -1,10 +1,10 @@
 
-from .MI import mainExperiments, genData, plotAll, evalMI
+from MI import mainExperiments, genData, plotAll, evalMI, recombine
 from multiprocessing import Pool
 import torch
 import random
-from .EvalUtils import loadModel
-from .EvalUtils import getLabels, getFalseAlarmRate
+from EvalUtils import loadModel
+from EvalUtils import getLabels, getFalseAlarmRate
 from itertools import repeat
 
 torch.manual_seed(0)
@@ -16,7 +16,7 @@ def debugPlots(graphWise, model12, randomMask, topologyOnly, featureNames):
         model = loadModel("models/GridFM_v0_1.pth")
     else:
         model = loadModel("models/GridFM_v0_2.pth")
-    'case14_ieee'
+    #'case14_ieee'
     mean, var = genData('',model,graph_wise=graphWise, debug=True,randomMask=False,topologyOnly=topologyOnly)
     #restructure data
     for i in range(len(mean)):
@@ -73,6 +73,9 @@ def runExperimentsNodeWise(gen=False):
     randomMask= False
     topologyOnly=False
     removeNan = False
+    featureNames = ['PQ-VoltageMagnitude','PQ-VoltageAngle','PV-ReactivePowerGenerated','PV-VoltageAngle','REF-ActivePowerGenerated','REF-ReactivePowerGenerated']
+    if randomMask:
+        featureNames = featureNames+['PQ-ActivePowerDemand','PQ-ReactivePowerDemand','PQ-ActivePowerGenerated','PQ-ReactivePowerGenerated', 'PV-ActivePowerDemand','PV-ReactivePowerDemand','PV-ReactivePowerGenerated', 'PV-VoltageMagnitude','REF-ActivePowerDemand','REF-ReactivePowerDemand', 'REF-VoltageMagnitude','REF-VoltageAngle']
     #data_dirs_eval = [['case39_epri','case60_c'],['case1354_pegase','case197_snem'],['case300_ieee','case73_ieee_rts'],['case14_ieee','case5_pjm']]
     #data_dirs_train = [['case240_pserc'],['case24_ieee_rts', 'case57_ieee'],['case89_pegase','case118_ieee'],['case30_ieee']]      
     if gen:
@@ -91,6 +94,9 @@ def runExperimentsSingleFeature():
     randomMask= False
     topologyOnly=False
     removeNan = False
+    featureNames = ['PQ-VoltageMagnitude','PQ-VoltageAngle','PV-ReactivePowerGenerated','PV-VoltageAngle','REF-ActivePowerGenerated','REF-ReactivePowerGenerated']
+    if randomMask:
+        featureNames = featureNames+['PQ-ActivePowerDemand','PQ-ReactivePowerDemand','PQ-ActivePowerGenerated','PQ-ReactivePowerGenerated', 'PV-ActivePowerDemand','PV-ReactivePowerDemand','PV-ReactivePowerGenerated', 'PV-VoltageMagnitude','REF-ActivePowerDemand','REF-ReactivePowerDemand', 'REF-VoltageMagnitude','REF-VoltageAngle']
     mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=True,step='load')
     topologyOnly=True
     mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=True,step='load')
@@ -109,23 +115,114 @@ def runSmallTopology():
     randomMask= False
     topologyOnly=True
     removeNan = False
-    #mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='genserial')
-    mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='load')
-    
-
-if __name__ == "__main__":
-    graphWise = False
-    nodeWise = True
-    model12 = False
-    randomMask= False
-    topologyOnly=False
-    removeNan = False
-
     featureNames = ['PQ-VoltageMagnitude','PQ-VoltageAngle','PV-ReactivePowerGenerated','PV-VoltageAngle','REF-ActivePowerGenerated','REF-ReactivePowerGenerated']
     if randomMask:
         featureNames = featureNames+['PQ-ActivePowerDemand','PQ-ReactivePowerDemand','PQ-ActivePowerGenerated','PQ-ReactivePowerGenerated', 'PV-ActivePowerDemand','PV-ReactivePowerDemand','PV-ReactivePowerGenerated', 'PV-VoltageMagnitude','REF-ActivePowerDemand','REF-ReactivePowerDemand', 'REF-VoltageMagnitude','REF-VoltageAngle']
-    #featureNames = ['Active Power Demand','Reactive Power Demand','Active Power Generated','Reactive Power Generated', 'Voltage Magnitude','Voltage Angle','PQ','PV','REF']
+    #mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='genserial')
+    mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='load')
+    
+def runAllExperiments():
+    model12 = True
+    randomMask= False
+    removeNan = False
+    featureNames = ['PQ-VoltageMagnitude','PQ-VoltageAngle','PV-ReactivePowerGenerated','PV-VoltageAngle','REF-ActivePowerGenerated','REF-ReactivePowerGenerated']
+    if randomMask:
+        featureNames = featureNames+['PQ-ActivePowerDemand','PQ-ReactivePowerDemand','PQ-ActivePowerGenerated','PQ-ReactivePowerGenerated', 'PV-ActivePowerDemand','PV-ReactivePowerDemand','PV-ReactivePowerGenerated', 'PV-VoltageMagnitude','REF-ActivePowerDemand','REF-ReactivePowerDemand', 'REF-VoltageMagnitude','REF-VoltageAngle']
+    ### run once with batch wise, once with graphwise, once with node wise.
+    for config in [[False, False],[True, False],[False, True]]:
+        topologyOnly=True
+        ### first is graphwise, second is nodewise
+        #mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='genserial')
+        mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='load')
+        topologyOnly=False
+        #mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='genserial')
+        mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='load')
 
+def runAblation():
+    #take the best performing setting
+    model12 = False
+    randomMask= False
+    removeNan = False
+    topologyOnly=False
+    graphWise = False
+    nodeWise = False
+    featureNames = ['PQ-VoltageMagnitude','PQ-VoltageAngle','PV-ReactivePowerGenerated','PV-VoltageAngle','REF-ActivePowerGenerated','REF-ReactivePowerGenerated']
+    if randomMask:
+        featureNames = featureNames+['PQ-ActivePowerDemand','PQ-ReactivePowerDemand','PQ-ActivePowerGenerated','PQ-ReactivePowerGenerated', 'PV-ActivePowerDemand','PV-ReactivePowerDemand','PV-ReactivePowerGenerated', 'PV-VoltageMagnitude','REF-ActivePowerDemand','REF-ReactivePowerDemand', 'REF-VoltageMagnitude','REF-VoltageAngle']
+    mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=False,MIAblation=True, runIndividualFeatures=False,step='load')
+    graphWise = True
+    mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=False,MIAblation=True, runIndividualFeatures=False,step='load')
+    pass
+
+def debugData():
+    model = loadModel("models/GridFM_v0_1.pth")
+    mean, var = genData('',model,graph_wise=False, debug=True,randomMask=False,topologyOnly=False)
+    unseenMean = [[] for i in repeat(None, 6)]
+    print(len(mean))
+    print(len(mean[0]))
+    for i in range(3):
+        print(i, 'iteration')
+        for i in range(len(mean)):
+            unseenMean[i].append(mean[i])
+            #mean[i].pop(-1)
+        ##this should now still be 6x something
+        print(len(unseenMean))
+        for i in range(len(unseenMean)):
+            print(len(unseenMean[i]))
+            for j in range(len(unseenMean[i])):
+                print(len(unseenMean[i][j]))
+    newDats = recombine(unseenMean,len(unseenMean))
+    print(len(newDats))
+    for i in range(len(newDats)):
+            print(len(newDats[i]))
+    newDats = recombine(unseenMean,len(unseenMean),2)
+    print(len(newDats))
+    for i in range(len(newDats)):
+            print(len(newDats[i]))
+
+def debugDataII():
+    model = loadModel("models/GridFM_v0_1.pth")
+    if torch.cuda.is_available():
+        #move model to gpu
+        model.model.to('cuda')
+    print('running with eight ------------------------')
+    unseenMean = [[] for i in repeat(None, 6)]
+    print('before',len(unseenMean))
+    data_dirs = ['case39_epri','case60_c','case1354_pegase','case197_snem','case300_ieee','case73_ieee_rts','case14_ieee','case5_pjm']
+    for datadir in data_dirs:
+        mean, _ = genData(datadir, model,graph_wise=False,nodeWise=False,randomMask=False,topologyOnly=False, removeNan=True)
+        for i in range(len(mean)):
+            unseenMean[i].append(mean[i])
+        print(datadir,len(unseenMean),len(unseenMean[0]))
+    print('finished, iterating')
+    for i in range(len(unseenMean)):
+        print(len(unseenMean[i]))
+        for j in range(len(unseenMean[i])):
+            print(len(unseenMean[i][j]))
+    print('reproducing second case, with two only -----')
+    unseenMean = [[] for i in repeat(None, 6)]
+    data_dirs = ['case39_epri','case60_c']
+    for datadir in data_dirs:
+        mean, _ = genData(datadir, model,graph_wise=False,nodeWise=False,randomMask=False,topologyOnly=False, removeNan=True)
+        for i in range(len(mean)):
+            unseenMean[i].append(mean[i])
+        print(datadir,len(unseenMean),len(unseenMean[0]))
+    print('finished, iterating')
+    for i in range(len(unseenMean)):
+        print(len(unseenMean[i]))
+        for j in range(len(unseenMean[i])):
+            print(len(unseenMean[i][j]))
+
+
+
+if __name__ == "__main__":    
+    #featureNames = ['Active Power Demand','Reactive Power Demand','Active Power Generated','Reactive Power Generated', 'Voltage Magnitude','Voltage Angle','PQ','PV','REF']
+    #runAblation()
+    #runAllExperiments()
+    #debugDataII()
+    runAllExperiments()
+    #####LEGACY
+    #debugData()
     #debugPlots(graphWise, model12, randomMask, topologyOnly, featureNames)
     #debugMI(graphWise, model12, randomMask, topologyOnly, featureNames)
     #mainExperiments(graphWise, nodeWise,model12, randomMask, topologyOnly, featureNames, removeNan, plot=True, MI=False,step='genserial')
@@ -145,12 +242,3 @@ if __name__ == "__main__":
     #runGraphWise()
     #GW: (2417043, 6) -> Too large
     #BW:   (75541, 6) -> Fine (with test 0.2 = ~14000)
-
-
-
-
-
-
-
-
-
