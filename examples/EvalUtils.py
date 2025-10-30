@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from itertools import repeat
 from sklearn.metrics import confusion_matrix
+import yaml
 
 from gridfm_graphkit.datasets.powergrid_datamodule import LitGridDataModule
 from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
@@ -33,6 +34,8 @@ def getFalseAlarmRate(model, data, groundTruth, opposite=False):
     #part of training: label==1
     predicted=model.predict(data)
     cm=confusion_matrix(groundTruth, predicted,labels=[0,1])
+    print('computing False Alarm Rate')
+    print(cm)
     ##cm is shape 2x2, second row is test members  
     if opposite:
         allPos = np.count_nonzero(groundTruth)
@@ -42,6 +45,7 @@ def getFalseAlarmRate(model, data, groundTruth, opposite=False):
             far = float(cm[0,1])/float(allPos)
     else:
         allNegs = np.shape(groundTruth)[0]-np.count_nonzero(groundTruth)
+        print(np.shape(groundTruth)[0],np.count_nonzero(groundTruth))
         if allNegs ==0:
             far = -1.0
         else:
@@ -138,11 +142,11 @@ class DataStruct:
             #    pc.set_facecolor('Green')
             pos = pos+1
         pointOr = plt.Line2D([0], [0], label='Train Performance', marker='+', markersize=7, linestyle='')
-        pointTrain = plt.Line2D([0], [0], label='Train Accuracy', marker='s', markersize=7, linestyle='', color='Blue')
-        pointTest = plt.Line2D([0], [0], label='Test Accuracy', marker='o', markersize=7, linestyle='',color='Green')
+        pointTrain = plt.Line2D([0], [0], label='Seen Accuracy', marker='s', markersize=7, linestyle='', color='Blue')
+        pointTest = plt.Line2D([0], [0], label='Unseen Accuracy', marker='o', markersize=7, linestyle='',color='Green')
         # add manual symbols to auto legend
         lines = [pointOr, pointTest, pointTrain]
-        labels = ['Train Performance', 'Train Accuracy', 'Test Accuracy']
+        labels = ['Train Performance', 'Seen Accuracy', 'Unseen Accuracy']
         plt.legend(lines, labels,bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",mode="expand", borderaxespad=0, ncol=3)
         plt.tight_layout()
         plt.savefig('plots/MI/'+title+'_'+suffix+'.pdf')
