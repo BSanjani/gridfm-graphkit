@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch_geometric.nn import TransformerConv
-from gridfm_graphkit.training.utils import compute_node_residuals
+from gridfm_graphkit.training.utils import PowerFlowResidualLayerHomo
 from gridfm_graphkit.io.registries import MODELS_REGISTRY
 
 
@@ -71,6 +71,8 @@ class GNN_PBE_TransformerConv(nn.Module):
 
         self.activation = nn.LeakyReLU()
 
+        self.engine = PowerFlowResidualLayerHomo()
+
     def forward(
         self,
         x: torch.Tensor,
@@ -92,7 +94,7 @@ class GNN_PBE_TransformerConv(nn.Module):
 
             temp_output = self.mlp_shared(h)
 
-            complex_residual = compute_node_residuals(
+            complex_residual = self.engine(
                 temp_output,
                 edge_index,
                 edge_attr,
@@ -108,7 +110,7 @@ class GNN_PBE_TransformerConv(nn.Module):
 
         output = self.mlp_shared(h)
 
-        final_complex_residual = compute_node_residuals(
+        final_complex_residual = self.engine(
             output,
             edge_index,
             edge_attr,

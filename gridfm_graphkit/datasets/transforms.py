@@ -1,4 +1,4 @@
-from gridfm_graphkit.datasets.globals import PQ, PV, REF, PG, QG, VM, VA, G, B
+from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.io.registries import MASKING_REGISTRY
 
 import torch
@@ -156,6 +156,114 @@ class AddRandomMask(BaseTransform):
 
         return data
 
+@MASKING_REGISTRY.register("pf_hetero")
+class AddPFHeteroMask(BaseTransform):
+    """Creates masks for a heterogeneous power flow graph."""
+
+    def __init__(self, args):
+        super().__init__()
+
+    def forward(self, data):
+        bus_x = data.x_dict["bus"]
+        gen_x = data.x_dict["gen"]
+        num_buses = bus_x.size(0)
+
+        # Identify bus types
+        mask_PQ = bus_x[:, PQ_H] == 1
+        mask_PV = bus_x[:, PV_H] == 1
+        mask_REF = bus_x[:, REF_H] == 1
+
+        # Initialize mask tensors
+        mask_bus = torch.zeros_like(bus_x, dtype=torch.bool)
+        mask_gen = torch.zeros_like(gen_x, dtype=torch.bool)
+        mask_out = torch.zeros((num_buses, 6), dtype=torch.bool)
+
+        mask_bus[:, MIN_VM_H] = True
+        mask_bus[:, MAX_VM_H] = True
+        mask_bus[:, MIN_QG_H] = True
+        mask_bus[:, MAX_QG_H] = True
+
+        mask_gen[:, MIN_PG] = True
+        mask_gen[:, MAX_PG] = True
+        mask_gen[:, C0_H] = True
+        mask_gen[:, C1_H] = True
+        mask_gen[:, C2_H] = True
+
+
+        # --- PQ buses ---
+        mask_bus[mask_PQ, VM_H] = True
+        mask_bus[mask_PQ, VA_H] = True
+        mask_out[mask_PQ, VM_H] = True
+        mask_out[mask_PQ, VA_H] = True
+
+        # --- PV buses ---
+        mask_bus[mask_PV, VA_H] = True
+        mask_bus[mask_PV, QG_H] = True
+        mask_out[mask_PV, VA_H] = True
+        mask_out[mask_PV, QG_H] = True
+
+        # --- REF buses ---
+        mask_bus[mask_REF, QG_H] = True
+        mask_out[mask_REF, 5] = True  # PG_H for REF
+        mask_out[mask_REF, QG_H] = True
+
+        # --- Generators connected to REF buses ---
+        gen_bus_edges = data.edge_index_dict[("gen", "connected_to", "bus")]
+        gen_indices, bus_indices = gen_bus_edges
+        ref_gens = gen_indices[mask_REF[bus_indices]]
+        mask_gen[ref_gens, PG_H] = True
+
+        data.mask_dict = {
+            "bus": mask_bus,
+            "gen": mask_gen,
+            "out": mask_out
+        }
+
+        return data
+
+@MASKING_REGISTRY.register("opf_hetero")
+class AddOPFHeteroMask(BaseTransform):
+    """Creates masks for a heterogeneous power flow graph."""
+
+    def __init__(self, args):
+        super().__init__()
+
+    def forward(self, data):
+        bus_x = data.x_dict["bus"]
+        gen_x = data.x_dict["gen"]
+
+        # Identify bus types
+        mask_PQ = bus_x[:, PQ_H] == 1
+        mask_PV = bus_x[:, PV_H] == 1
+        mask_REF = bus_x[:, REF_H] == 1
+
+        # Initialize mask tensors
+        mask_bus = torch.zeros_like(bus_x, dtype=torch.bool)
+        mask_gen = torch.zeros_like(gen_x, dtype=torch.bool)
+
+
+        # --- PQ buses ---
+        mask_bus[mask_PQ, VM_H] = True
+        mask_bus[mask_PQ, VA_H] = True
+
+        # --- PV buses ---
+        mask_bus[mask_PV, VA_H] = True
+        mask_bus[mask_PV, VM_H] = True
+        mask_bus[mask_PV, QG_H] = True
+
+        # --- REF buses ---
+        mask_bus[mask_REF, QG_H] = True
+        mask_bus[mask_REF, VM_H] = True
+        mask_bus[mask_REF, VA_H] = True
+
+        mask_gen[:, PG_H] = True
+
+        data.mask_dict = {
+            "bus": mask_bus,
+            "gen": mask_gen,
+        }
+
+        return data
 
 @MASKING_REGISTRY.register("pf")
 class AddPFMask(BaseTransform):

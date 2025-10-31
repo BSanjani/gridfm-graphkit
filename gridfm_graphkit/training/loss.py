@@ -1,8 +1,10 @@
-from gridfm_graphkit.training.utils import compute_node_residuals
+from gridfm_graphkit.training.utils import PowerFlowResidualLayerHomo
 import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
+from gridfm_graphkit.datasets.globals import *
+from gridfm_graphkit.models.gnn_hetero_gns import GenToBusAggregator
 
 
 class BaseLoss(nn.Module, ABC):
@@ -57,6 +59,52 @@ class MaskedMSELoss(BaseLoss):
     ):
         loss = F.mse_loss(pred[mask], target[mask], reduction=self.reduction)
         return {"loss": loss, "Masked MSE loss": loss.detach()}
+    
+class MaskedHeteroMSELoss(BaseLoss):
+    """Masked Mean Squared Error loss for heterogeneous graphs."""
+
+    def __init__(self, reduction="mean"):
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+        num_bus = target_dict["bus"].size(0)
+        gen_to_bus_index = edge_index[("gen", "connected_to", "bus")]
+        gen2bus_agg = GenToBusAggregator()
+        agg_gen_on_bus = gen2bus_agg(target_dict["gen"], gen_to_bus_index, num_bus)
+
+        output_target = torch.cat([target_dict["bus"], agg_gen_on_bus], dim=1)
+        loss = F.mse_loss(pred_dict[mask_dict['out']], output_target[mask_dict['out']])
+
+        return {"loss": loss, "Masked MSE loss": loss.detach()}
+
+
+class MaskedOPFHeteroLoss(torch.nn.Module):
+    """Masked OPF loss for heterogeneous graphs (bus + generator level)."""
+
+    def __init__(self, reduction="mean"):
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+        # Bus-level loss
+        bus_loss = F.mse_loss(
+            pred_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
+            target_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
+            reduction=self.reduction
+        )
+
+        # Generator-level loss
+        gen_loss = F.mse_loss(
+            pred_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
+            target_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
+            reduction=self.reduction
+        )
+
+        # Combine losses (simple average)
+        combined_loss = (bus_loss + gen_loss) / 2.0
+
+        return {"loss": combined_loss, "Masked MSE loss": combined_loss.detach()}
 
 
 class MSELoss(BaseLoss):
@@ -116,7 +164,8 @@ class PBELoss(BaseLoss):
         self.visualization = visualization
 
     def forward(self, pred, target, edge_index, edge_attr, mask, model=None):
-        residual_complex = compute_node_residuals(
+        layer = PowerFlowResidualLayerHomo()
+        residual_complex = layer(
             pred,
             edge_index,
             edge_attr,
@@ -200,10 +249,10 @@ class MixedLoss(BaseLoss):
             loss_output = loss_fn(
                 pred,
                 target,
-                edge_index=edge_index,
-                edge_attr=edge_attr,
-                mask=mask,
-                model=model,
+                edge_index,
+                edge_attr,
+                mask,
+                model,
             )
 
             # Assume each loss function returns a dictionary with a "loss" key

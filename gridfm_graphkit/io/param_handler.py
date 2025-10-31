@@ -5,6 +5,8 @@ from gridfm_graphkit.training.loss import (
     MixedLoss,
     MSELoss,
     LayeredWeightedPhysicsLoss,
+    MaskedHeteroMSELoss,
+    MaskedOPFHeteroLoss,
 )
 from gridfm_graphkit.io.registries import (
     MASKING_REGISTRY,
@@ -104,6 +106,10 @@ def get_loss_function(args):
             loss_functions.append(
                 LayeredWeightedPhysicsLoss(base_weight=args.training.base_weight),
             )
+        elif loss_name == "MaskedHeteroMSELoss":
+            loss_functions.append(MaskedHeteroMSELoss())
+        elif loss_name == "MaskedOPFHeteroLoss":
+            loss_functions.append(MaskedOPFHeteroLoss())
         else:
             raise ValueError(f"Unknown loss function: {loss_name}")
 

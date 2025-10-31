@@ -3,12 +3,14 @@ from gridfm_graphkit.datasets.transforms import (
     AddIdentityMask,
     AddRandomMask,
     AddOPFMask,
+    AddPFHeteroMask,
 )
 from gridfm_graphkit.datasets.normalizers import (
     Standardizer,
     MinMaxNormalizer,
     BaseMVANormalizer,
     IdentityNormalizer,
+    HeteroBaseMVANormalizer,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "MinMaxNormalizer",
     "BaseMVANormalizer",
     "IdentityNormalizer",
+    "HeteroBaseMVANormalizer",
+    "AddPFHeteroMask",
 ]

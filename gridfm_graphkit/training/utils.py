@@ -1,49 +1,67 @@
-from gridfm_graphkit.datasets.globals import PD, QD, PG, QG, VM, VA, G, B
+from gridfm_graphkit.datasets.globals import *
 import torch
-from torch_geometric.utils import to_torch_coo_tensor
+from torch_geometric.nn import MessagePassing
 
 
-def compute_node_residuals(x, edge_index, edge_attr, mask=None, target=None):
-    """
-    Computes node-wise active/reactive power flow residuals.
-    """
+class PowerFlowResidualLayer(MessagePassing):
+    def __init__(self):
+        super().__init__(aggr='add')
 
-    # Clone predictions to avoid overwriting the original tensor.
-    # This is important when combining multiple losses during training (e.g., MSE loss + Power Balance Equation Loss),
-    # since modifying the tensor in-place would affect other loss components that rely on the original predictions.
-    if mask is not None and target is not None:
-        temp_x = x.clone()
+    def forward(self, x, edge_index, edge_attr):
 
-        # If a value is not masked, then use the original one
-        temp_x[~mask] = target[~mask]
-        x = temp_x
+        Vm, Va = x[:, VM_H], x[:, VA_H]
+        Pd, Qd = x[:, PD_H], x[:, QD_H]
+        Pg, Qg = x[:, PG_B], x[:, QG_H]
 
-    Vm, Va = x[:, VM], x[:, VA]
-    Pd, Qd = x[:, PD], x[:, QD]
-    Pg, Qg = x[:, PG], x[:, QG]
+        V = Vm * torch.exp(1j * Va)
+        V = V.unsqueeze(-1)
 
-    V = Vm * torch.exp(1j * Va)
-    V_conj = torch.conj(V)
 
-    edge_complex = edge_attr[:, G] + 1j * edge_attr[:, B]
-    Y_bus_sparse = to_torch_coo_tensor(
-        edge_index,
-        edge_complex,
-        size=(x.size(0), x.size(0)),
-    )
-    Y_bus_conj = torch.conj(Y_bus_sparse)
+        # Compute messages and aggregate
+        S_injection = self.propagate(edge_index, x=V, edge_attr=edge_attr).squeeze()
 
-    indices = torch.arange(V.size(0), device=V.device)
-    indices = torch.stack([indices, indices])
-    V_diag_sparse = torch.sparse_coo_tensor(
-        indices,
-        V,
-        size=(V.size(0), V.size(0)),
-        dtype=torch.complex64,
-    )
+        # Compute net power balance
+        S_net_power_balance = (Pg - Pd) + 1j * (Qg - Qd)
 
-    S_injection = V_diag_sparse @ Y_bus_conj @ V_conj
-    S_net_power_balance = (Pg - Pd) + 1j * (Qg - Qd)
+        residual_complex = S_net_power_balance - S_injection
+        return residual_complex
 
-    residual_complex = S_net_power_balance - S_injection
-    return residual_complex
+    def message(self, x_i, x_j, edge_attr):
+        Y_ij = edge_attr[:, G] - 1j * edge_attr[:, B]
+        result = x_i.squeeze() * Y_ij * torch.conj(x_j.squeeze())
+        return result.unsqueeze(-1)
+    
+
+class PowerFlowResidualLayerHomo(MessagePassing):
+    def __init__(self):
+        super().__init__(aggr='add')
+
+    def forward(self, x, edge_index, edge_attr, mask=None, target=None):
+        if mask is not None and target is not None:
+            temp_x = x.clone()
+
+            # If a value is not masked, then use the original one
+            temp_x[~mask] = target[~mask]
+            x = temp_x
+
+        Vm, Va = x[:, VM], x[:, VA]
+        Pd, Qd = x[:, PD], x[:, QD]
+        Pg, Qg = x[:, PG], x[:, QG]
+
+        V = Vm * torch.exp(1j * Va)
+        V = V.unsqueeze(-1)
+
+
+        # Compute messages and aggregate
+        S_injection = self.propagate(edge_index, x=V, edge_attr=edge_attr).squeeze()
+
+        # Compute net power balance
+        S_net_power_balance = (Pg - Pd) + 1j * (Qg - Qd)
+
+        residual_complex = S_net_power_balance - S_injection
+        return residual_complex
+
+    def message(self, x_i, x_j, edge_attr):
+        Y_ij = edge_attr[:, G] - 1j * edge_attr[:, B]
+        result = x_i.squeeze() * Y_ij * torch.conj(x_j.squeeze())
+        return result.unsqueeze(-1)
