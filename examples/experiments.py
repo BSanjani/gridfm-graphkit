@@ -138,9 +138,8 @@ def runAllExperiments():
         #mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='genserial')
         mainExperiments(config[0], config[1], model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=True,runIndividualFeatures=False,step='load')
 
-def runAblation():
+def runAblation(model12 = False):
     #take the best performing setting
-    model12 = False
     randomMask= False
     removeNan = False
     topologyOnly=False
@@ -152,7 +151,6 @@ def runAblation():
     mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=False,MIAblation=True, runIndividualFeatures=False,step='load')
     graphWise = True
     mainExperiments(graphWise, nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot=False, MI=False,MIAblation=True, runIndividualFeatures=False,step='load')
-    pass
 
 def debugData():
     model = loadModel("models/GridFM_v0_1.pth")
@@ -218,9 +216,10 @@ def debugDataII():
 if __name__ == "__main__":    
     #featureNames = ['Active Power Demand','Reactive Power Demand','Active Power Generated','Reactive Power Generated', 'Voltage Magnitude','Voltage Angle','PQ','PV','REF']
     #runAblation()
-    #runAllExperiments()
-    #debugDataII()
+    #runAblation(True)
     runAllExperiments()
+    #debugDataII()
+    #runAllExperiments()
     #####LEGACY
     #debugData()
     #debugPlots(graphWise, model12, randomMask, topologyOnly, featureNames)

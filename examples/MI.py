@@ -298,18 +298,21 @@ def fitSVM(dataO, labels,maxSamples=-1):
     largeData=False
     if maxSamples>0:
         # set maximum amount of samples to this
-        print('fit SMM max samples',maxSamples,np.shape(data)[0])
+        #print('fit SMM max samples',maxSamples,np.shape(data)[0])
         if np.shape(data)[0]<=maxSamples:
             X_train, X_temp, y_train, y_temp = train_test_split(data, labels, test_size=0.2, random_state=42) 
         else:   
             #print(float(maxSamples),float(np.shape(data)[0]),(float(maxSamples)/float(np.shape(data)[0])))
             perTrain = float(maxSamples)/float(np.shape(data)[0])
             perTest = np.min([15000.0/float(np.shape(data)[0]),(1.0-perTrain)])
+            print(perTrain, perTest)
             X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=perTest, train_size=perTrain, random_state=42)
+            print(np.shape(X_train),np.shape(X_test))
             if np.shape(X_train)[0]>70000:
                 #if we're still to large we cap as before
                 largeData= True   
-    if np.shape(data)[0]>70000 or largeData:
+    if (maxSamples <0 and np.shape(data)[0]>70000) or largeData:
+        #print('running also big data')
         #for runtime reasons, we only train on max 90,000 samples
         # per = 70000.0/float(np.shape(data)[0]) #previously
         per = 1.0-(50000.0/float(np.shape(data)[0]))
@@ -317,13 +320,15 @@ def fitSVM(dataO, labels,maxSamples=-1):
         #we also don't test on all remaining samples
         per = 15000.0/float(np.shape(X_temp)[0])
         _, X_test, _, y_test = train_test_split(X_temp, y_temp, test_size=per, random_state=42)
-    else:
+    elif maxSamples <0 and np.shape(data)[0]<=70000:
         X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, random_state=42)
+    #print('should be as above',np.shape(X_train))    
     bestPerf = 0.0
     bestclf = None
     bestkernel = ''
     bestc = 0
     bestgamma = 0
+    #print(np.shape(X_train),np.shape(X_test))
     for c in  [0.01, 0.1, 1, 10, 100]: #removed 0.001
         clf = svm.SVC(C=c, kernel='linear')
         clf.fit(X_train,y_train)
@@ -345,6 +350,7 @@ def fitSVM(dataO, labels,maxSamples=-1):
                 bestc =c
                 bestgamma = gamma
                 bestkernel = 'rbf'
+    #print(np.shape(X_train),np.shape(X_test),bestPerf)
     return bestclf, bestPerf, 'c '+str(bestc), bestgamma, bestkernel
 
 def recombine(arr, dim=1,index=-1):
@@ -364,7 +370,7 @@ def recombine(arr, dim=1,index=-1):
     return combined
 
 def MembershipAnalysisAblation(seenData, unseenData, suffix):
-    dataSizes = [50000,25000,12500,6250,3125,1562,781,390,195,85,42]
+    dataSizes = [50000,25000,12500,6250,3125,1562,781,390,195,85,42,21]
     scores = []
     baselineAcc = 0.0
     fass = []
@@ -381,10 +387,12 @@ def MembershipAnalysisAblation(seenData, unseenData, suffix):
         kernels.append(kernel)
     #print SVM params to check consistency
     print(cs, gammas, kernels)
+    print(scores)
+    print(dataSizes)
     #plot remainder to understand effect of known amount of data
     plt.style.use('ggplot')
     fig = plt.figure()
-    plt.vlines(baselineAcc,0,len(scores),colors=['silver'])
+    plt.hlines(baselineAcc,0,len(scores),colors=['silver'])
     plt.plot(scores,c='blue')
     plt.plot(fass,c='red')
     plt.xlabel('Number of Samples')
@@ -416,7 +424,6 @@ def SimpleMembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSample
 
 
 def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
-    maxSamples = 500
     if maxSamples>0:
         suffix = suffix+'S'+str(maxSamples)
     # on full data - worst case / theoretically achievable
@@ -718,10 +725,10 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
                     with open(data_dir+featureNames[i]+suffix+'varTrainTemp.pickle', 'rb') as f:
                         seenVar.append(pickle.load(f))
             #sanity check Length - not neccessary, loading for feature would fail
-            print('sanity check data loading')
-            for i in range(maxIter):
-                print(len(seenMean[i]))
-                print(len(unseenMean[i]))
+            #print('sanity check data loading')
+            #for i in range(maxIter):
+            #    print(len(seenMean[i]))
+            #    print(len(unseenMean[i]))
         except FileNotFoundError:
             print(featureNames[i]+suffix, 'NOT FOUND!!')
             plot = False

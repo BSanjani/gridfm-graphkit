@@ -34,22 +34,24 @@ def getFalseAlarmRate(model, data, groundTruth, opposite=False):
     #part of training: label==1
     predicted=model.predict(data)
     cm=confusion_matrix(groundTruth, predicted,labels=[0,1])
-    print('computing False Alarm Rate')
-    print(cm)
+    #print('computing False Alarm Rate')
+    #print(cm)
     ##cm is shape 2x2, second row is test members  
     if opposite:
-        allPos = np.count_nonzero(groundTruth)
+        #allPos = np.count_nonzero(groundTruth)
+        allPos = np.sum(cm[0])
         if allPos == 0:
             far = -1.0
         else:
             far = float(cm[0,1])/float(allPos)
     else:
-        allNegs = np.shape(groundTruth)[0]-np.count_nonzero(groundTruth)
-        print(np.shape(groundTruth)[0],np.count_nonzero(groundTruth))
+        #print(np.shape(groundTruth)[0],np.count_nonzero(groundTruth))
+        allNegs = np.sum(cm[1])
         if allNegs ==0:
             far = -1.0
         else:
             far = float(cm[1,0])/float(allNegs)
+    #print(far,np.sum(cm[1:]),float(cm[1,0])/np.sum(cm[1]))
     return np.round(far,2)
 
 def getLabels(posnum, negnum, val=1.0):
@@ -186,7 +188,7 @@ class DataStruct:
             s = s+ 'worst performance: '+str(round(min_gen,3)) +'\n'+'\n'
             s = s+ 'Performance on training, mean: '+str(round(avTrain,3))+' and median: '+str(round(medTrain,3))+'\n'
             s = s+ 'Performance on test data, mean: '+str(round(avTest,3))+' and median: '+str(round(medTest,3))+'\n'
-            s = s+ 'Minimal performance on train: '+str(round(minTrain,3))+'and test'+str(round(minTest,3))+'\n'
+            s = s+ 'Minimal performance on train: '+str(round(minTrain,3))+' and test '+str(round(minTest,3))+'\n'
             s = s+ 'Max. generalization difference relative to base performance, mean: '+str(round(avGen,3))+' and median: '+str(round(medGen,3))
             s = s+ 'FAR on average: '+str(round(np.mean(fass),2))+', minimally '+str(round(np.min(fass),2))+', maximally '+str(round(np.max(fass),2))
             print(s)
