@@ -28,6 +28,10 @@ class GenToBusAggregator(MessagePassing):
     def message(self, x_j):
         return x_j
 
+def bound_with_sigmoid(pred, low, high):
+    return low + (high - low) * torch.sigmoid(pred)
+
+
 @MODELS_REGISTRY.register("GNN_PBE_HeteroTransformerConv")
 class GNN_PBE_HeteroTransformerConv(nn.Module):
     """
@@ -209,6 +213,12 @@ class GNN_PBE_HeteroTransformerConv(nn.Module):
             bus_temp = torch.where(bus_mask, bus_temp, bus_fixed)
             gen_temp = torch.where(gen_mask, gen_temp, gen_fixed)
 
+            if self.task == 'opf_hetero':
+                bus_temp[:, VM_H] = bound_with_sigmoid(bus_temp[:, VM_H], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
+                bus_temp[:, QG_H] = bound_with_sigmoid(bus_temp[:, QG_H], x_dict["bus"][:, MIN_QG_H], x_dict["bus"][:, MAX_QG_H])
+                gen_temp[:, PG_H] = bound_with_sigmoid(gen_temp[:, PG_H], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])
+
+
             # Aggregate gen predictions to buses
             agg_gen_on_bus = self.gen2bus_agg(gen_temp, gen_to_bus_index, num_bus)
 
@@ -233,7 +243,11 @@ class GNN_PBE_HeteroTransformerConv(nn.Module):
         final_gen_out = self.mlp_gen(h_gen)
         final_bus_out = torch.where(bus_mask, final_bus_out, bus_fixed)
         final_gen_out = torch.where(gen_mask, final_gen_out, gen_fixed)
-
+        
+        if self.task == 'opf_hetero':
+            final_bus_out[:, VM_H] = bound_with_sigmoid(final_bus_out[:, VM_H], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
+            final_bus_out[:, QG_H] = bound_with_sigmoid(final_bus_out[:, QG_H], x_dict["bus"][:, MIN_QG_H], x_dict["bus"][:, MAX_QG_H])
+            final_gen_out[:, PG_H] = bound_with_sigmoid(final_gen_out[:, PG_H], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])
 
         agg_gen_on_bus = self.gen2bus_agg(final_gen_out, gen_to_bus_index, num_bus)
         temp_output = torch.cat([final_bus_out, agg_gen_on_bus], dim=1)
