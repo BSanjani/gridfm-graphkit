@@ -5,8 +5,8 @@ from gridfm_graphkit.training.utils import PowerFlowResidualLayerHomo
 from gridfm_graphkit.io.registries import MODELS_REGISTRY
 
 
-@MODELS_REGISTRY.register("GNN_PBE_TransformerConv")
-class GNN_PBE_TransformerConv(nn.Module):
+@MODELS_REGISTRY.register("GNS_homogeneous")
+class GNS_homogeneous(nn.Module):
     """Graph neural network with enhanced physics integration."""
 
     def __init__(self, args) -> None:

@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
 import torch.nn.functional as F
 from gridfm_graphkit.datasets.globals import *
-from gridfm_graphkit.models.gnn_hetero_gns_new import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
+from gridfm_graphkit.models.gnn_heterogeneous_gns import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
 from torch_scatter import scatter_add
 import matplotlib.pyplot as plt
 import seaborn as sns

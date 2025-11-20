@@ -40,3 +40,4 @@ class Registry:
 MASKING_REGISTRY = Registry("mask")
 NORMALIZERS_REGISTRY = Registry("norm")
 MODELS_REGISTRY = Registry("model")
+LOSS_REGISTRY = Registry("loss")

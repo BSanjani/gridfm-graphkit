@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 from gridfm_graphkit.datasets.globals import *
-from gridfm_graphkit.models.gnn_hetero_gns import GenToBusAggregator
+from gridfm_graphkit.io.registries import LOSS_REGISTRY
 
 
 class BaseLoss(nn.Module, ABC):
@@ -38,15 +38,15 @@ class BaseLoss(nn.Module, ABC):
         """
         pass
 
-
+@LOSS_REGISTRY.register("MaskedMSE")
 class MaskedMSELoss(BaseLoss):
     """
     Mean Squared Error loss computed only on masked elements.
     """
 
-    def __init__(self, reduction="mean"):
+    def __init__(self, args):
         super(MaskedMSELoss, self).__init__()
-        self.reduction = reduction
+        self.reduction = "mean"
 
     def forward(
         self,
@@ -59,32 +59,14 @@ class MaskedMSELoss(BaseLoss):
     ):
         loss = F.mse_loss(pred[mask], target[mask], reduction=self.reduction)
         return {"loss": loss, "Masked MSE loss": loss.detach()}
-    
-class MaskedHeteroMSELoss(BaseLoss):
-    """Masked Mean Squared Error loss for heterogeneous graphs."""
 
-    def __init__(self, reduction="mean"):
-        super().__init__()
-        self.reduction = reduction
-
-    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
-        num_bus = target_dict["bus"].size(0)
-        gen_to_bus_index = edge_index[("gen", "connected_to", "bus")]
-        gen2bus_agg = GenToBusAggregator()
-        agg_gen_on_bus = gen2bus_agg(target_dict["gen"], gen_to_bus_index, num_bus)
-
-        output_target = torch.cat([target_dict["bus"], agg_gen_on_bus], dim=1)
-        loss = F.mse_loss(pred_dict[mask_dict['out']], output_target[mask_dict['out']])
-
-        return {"loss": loss, "Masked MSE loss": loss.detach()}
-
-
+@LOSS_REGISTRY.register("MaskedOPFHetero")
 class MaskedOPFHeteroLoss(torch.nn.Module):
     """Masked OPF loss for heterogeneous graphs (bus + generator level)."""
 
-    def __init__(self, reduction="mean"):
+    def __init__(self, args):
         super().__init__()
-        self.reduction = reduction
+        self.reduction = "mean"
 
     def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
         # Bus-level loss
@@ -106,13 +88,13 @@ class MaskedOPFHeteroLoss(torch.nn.Module):
 
         return {"loss": combined_loss, "Masked MSE loss": combined_loss.detach()}
 
-
+@LOSS_REGISTRY.register("MSE")
 class MSELoss(BaseLoss):
     """Standard Mean Squared Error loss."""
 
-    def __init__(self, reduction="mean"):
+    def __init__(self, args):
         super(MSELoss, self).__init__()
-        self.reduction = reduction
+        self.reduction = "mean"
 
     def forward(
         self,
@@ -126,42 +108,11 @@ class MSELoss(BaseLoss):
         loss = F.mse_loss(pred, target, reduction=self.reduction)
         return {"loss": loss, "MSE loss": loss.detach()}
 
-
-class SCELoss(BaseLoss):
-    """Scaled Cosine Error Loss with optional masking and normalization."""
-
-    def __init__(self, alpha=3):
-        super(SCELoss, self).__init__()
-        self.alpha = alpha
-
-    def forward(
-        self,
-        pred,
-        target,
-        edge_index=None,
-        edge_attr=None,
-        mask=None,
-        model=None,
-    ):
-        if mask is not None:
-            pred = F.normalize(pred[mask], p=2, dim=-1)
-            target = F.normalize(target[mask], p=2, dim=-1)
-        else:
-            pred = F.normalize(pred, p=2, dim=-1)
-            target = F.normalize(target, p=2, dim=-1)
-
-        loss = ((1 - (pred * target).sum(dim=-1)).pow(self.alpha)).mean()
-
-        return {
-            "loss": loss,
-            "SCE loss": loss.detach(),
-        }
-
-
+@LOSS_REGISTRY.register("PBE")
 class PBELoss(BaseLoss):
-    def __init__(self, visualization=False):
+    def __init__(self, args):
         super().__init__()
-        self.visualization = visualization
+        self.visualization = args.verbose
 
     def forward(self, pred, target, edge_index, edge_attr, mask, model=None):
         layer = PowerFlowResidualLayerHomo()
@@ -197,7 +148,6 @@ class PBELoss(BaseLoss):
             )
 
         return result
-
 
 class MixedLoss(BaseLoss):
     """
@@ -268,11 +218,11 @@ class MixedLoss(BaseLoss):
         loss_details["loss"] = total_loss
         return loss_details
 
-
+@LOSS_REGISTRY.register("LayeredWeightedPhysics")
 class LayeredWeightedPhysicsLoss(BaseLoss):
-    def __init__(self, base_weight: float) -> None:
+    def __init__(self, args) -> None:
         super().__init__()
-        self.base_weight = base_weight
+        self.base_weight = args.training.base_weight
 
     def forward(
         self,

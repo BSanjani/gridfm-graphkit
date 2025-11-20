@@ -1,17 +1,9 @@
-from gridfm_graphkit.training.loss import (
-    PBELoss,
-    MaskedMSELoss,
-    SCELoss,
-    MixedLoss,
-    MSELoss,
-    LayeredWeightedPhysicsLoss,
-    MaskedHeteroMSELoss,
-    MaskedOPFHeteroLoss,
-)
+from gridfm_graphkit.training.loss import MixedLoss
 from gridfm_graphkit.io.registries import (
     MASKING_REGISTRY,
     NORMALIZERS_REGISTRY,
     MODELS_REGISTRY,
+    LOSS_REGISTRY,
 )
 
 import argparse
@@ -94,24 +86,10 @@ def get_loss_function(args):
     """
     loss_functions = []
     for loss_name in args.training.losses:
-        if loss_name == "MSE":
-            loss_functions.append(MSELoss())
-        elif loss_name == "MaskedMSE":
-            loss_functions.append(MaskedMSELoss())
-        elif loss_name == "SCE":
-            loss_functions.append(SCELoss())
-        elif loss_name == "PBE":
-            loss_functions.append(PBELoss())
-        elif loss_name == "LayeredWeightedPhysicsLoss":
-            loss_functions.append(
-                LayeredWeightedPhysicsLoss(base_weight=args.training.base_weight),
-            )
-        elif loss_name == "MaskedHeteroMSELoss":
-            loss_functions.append(MaskedHeteroMSELoss())
-        elif loss_name == "MaskedOPFHeteroLoss":
-            loss_functions.append(MaskedOPFHeteroLoss())
-        else:
-            raise ValueError(f"Unknown loss function: {loss_name}")
+        try:
+            loss_functions.append(LOSS_REGISTRY.create(loss_name, args))
+        except KeyError:
+            raise ValueError(f"Unknown loss: {loss_name}")
 
     return MixedLoss(loss_functions=loss_functions, weights=args.training.loss_weights)
 

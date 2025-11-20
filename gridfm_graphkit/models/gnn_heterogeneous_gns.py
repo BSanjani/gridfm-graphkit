@@ -72,8 +72,8 @@ def bound_with_sigmoid(pred, low, high):
     return low + (high - low) * torch.sigmoid(pred)
 
 
-@MODELS_REGISTRY.register("GNS_final")
-class GNS_final(nn.Module):
+@MODELS_REGISTRY.register("GNS_heterogeneous")
+class GNS_heterogeneous(nn.Module):
     """
     Heterogeneous version of your Transformer-based GNN for buses and generators.
     - Expects node features as dict: x_dict = {"bus": Tensor[num_bus, bus_feat], "gen": Tensor[num_gen, gen_feat]}
