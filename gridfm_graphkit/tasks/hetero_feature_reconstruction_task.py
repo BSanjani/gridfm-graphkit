@@ -8,13 +8,13 @@ import pandas as pd
 
 from lightning.pytorch.loggers import MLFlowLogger
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
-from gridfm_graphkit.training.loss import PBELoss
 import torch.nn.functional as F
 from gridfm_graphkit.datasets.globals import *
-from gridfm_graphkit.training.utils import PowerFlowResidualLayer
-from gridfm_graphkit.models.gnn_hetero_gns import GenToBusAggregator
+from gridfm_graphkit.models.gnn_hetero_gns_new import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
+from torch_scatter import scatter_add
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.colors import LogNorm
 
 
 class HeteroFeatureReconstructionTask(L.LightningModule):
@@ -83,6 +83,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
     def forward(self, x_dict, edge_index_dict, edge_attr_dict, mask_dict):
         x_dict['bus'][mask_dict['bus']] = self.args.data.mask_value
         x_dict['gen'][mask_dict['gen']] = self.args.data.mask_value
+        edge_attr_dict[("bus", "connects", "bus")][mask_dict["branch"]] = self.args.data.mask_value
         return self.model(x_dict, edge_index_dict, edge_attr_dict, mask_dict)
 
     @rank_zero_only
@@ -177,13 +178,14 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         self.node_normalizers[dataloader_idx].to(self.device)
         self.edge_normalizers[dataloader_idx].to(self.device)
 
-        engine = PowerFlowResidualLayer()
-        gen2bus_agg = GenToBusAggregator()
+        branch_flow_layer = ComputeBranchFlow()
+        node_injection_layer = ComputeNodeInjection()
+        node_residuals_layer = ComputeNodeResiduals()
 
         num_bus = batch.x_dict["bus"].size(0)
         bus_edge_index = batch.edge_index_dict[("bus", "connects", "bus")]
         bus_edge_attr = batch.edge_attr_dict[("bus", "connects", "bus")]
-        gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
+        _ , gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
 
         if self.args.data.mask_type == "opf_hetero":
             mse_PG = F.mse_loss(
@@ -191,41 +193,84 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                 batch.y_dict["gen"] * self.node_normalizers[dataloader_idx].baseMVA,
                 reduction="none",
             ).mean(dim=0)
+            c0 = torch.sign(batch.x_dict["gen"][:, C0_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C0_H])) - 1) 
+            c1 = torch.sign(batch.x_dict["gen"][:, C1_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C1_H])) - 1)
+            c2 = torch.sign(batch.x_dict["gen"][:, C2_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C2_H])) - 1)
+            target_pg = batch.y_dict["gen"].squeeze() * self.node_normalizers[dataloader_idx].baseMVA
+            pred_pg = output["gen"].squeeze() * self.node_normalizers[dataloader_idx].baseMVA            
+
+            gen_cost_gt = c0 + c1 * target_pg + c2 * target_pg**2
+            gen_cost_pred = c0 + c1 * pred_pg + c2 * pred_pg**2
+
+
+            gen_batch = batch.batch_dict["gen"]   # shape: [N_gen_total]
+
+            cost_gt = scatter_add(gen_cost_gt, gen_batch, dim=0)
+            cost_pred = scatter_add(gen_cost_pred, gen_batch, dim=0)
+
+            optimality_gap = torch.mean(torch.abs((cost_pred - cost_gt) / cost_gt * 100))
         
-            agg_gen_on_bus = gen2bus_agg(output["gen"], gen_to_bus_index, num_bus)
-            output = torch.cat([output["bus"], agg_gen_on_bus], dim=1)
-        # if self.args.data.mask_type == "opf_hetero":
-        #     agg_gen_on_bus = gen2bus_agg(batch.y_dict["gen"], gen_to_bus_index, num_bus)
-        #     output = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+            agg_gen_on_bus = scatter_add(output["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
+            output_agg = torch.cat([output["bus"], agg_gen_on_bus], dim=1)
+        else:
+            agg_gen_on_bus = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
+            output_agg = output
+            #output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+
+        Pft, Qft = branch_flow_layer(output_agg, bus_edge_index, bus_edge_attr)
+        torch.set_printoptions(profile="full")
+        # Compute branch termal limits violations
+        Sft = torch.sqrt(Pft**2 + Qft**2)  # apparent power flow per branch
+        branch_thermal_limits = bus_edge_attr[:, RATE_A]
+        branch_thermal_excess = F.relu(Sft - branch_thermal_limits)
+
+        num_edges = bus_edge_index.size(1)
+        half_edges = num_edges // 2
+        forward_excess = branch_thermal_excess[:half_edges]
+        reverse_excess = branch_thermal_excess[half_edges:]
 
 
+        mean_thermal_violation_forward = torch.mean(forward_excess) * self.node_normalizers[dataloader_idx].baseMVA
+        mean_thermal_violation_reverse = torch.mean(reverse_excess) * self.node_normalizers[dataloader_idx].baseMVA
 
-        final_complex_res_bus = engine(
-            output,
-            bus_edge_index,
-            bus_edge_attr,
-        )
-        final_residual_real_bus = torch.mean(torch.abs(torch.real(final_complex_res_bus)))
-        final_residual_imag_bus = torch.mean(torch.abs(torch.imag(final_complex_res_bus)))
+        # Compute branch angle difference violation
+        angle_min = bus_edge_attr[:, ANG_MIN]
+        angle_max = bus_edge_attr[:, ANG_MAX]
+
+        bus_angles = output_agg[:, VA_H]  # in degrees
+        from_bus = bus_edge_index[0]
+        to_bus = bus_edge_index[1]
+        angle_diff = torch.abs(bus_angles[from_bus] - bus_angles[to_bus])
+ 
+        angle_excess_low = F.relu(angle_min - angle_diff)   # violation if too small
+        angle_excess_high = F.relu(angle_diff - angle_max)  # violation if too large
+        branch_angle_violation_mean = torch.mean(angle_excess_low + angle_excess_high) * 180.0 / torch.pi
+
+
+        P_in, Q_in = node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
+        residual_P, residual_Q = node_residuals_layer(P_in, Q_in, output_agg, batch.x_dict["bus"], agg_gen_on_bus.squeeze())
+
+        final_residual_real_bus = torch.mean(torch.abs(residual_P))
+        final_residual_imag_bus = torch.mean(torch.abs(residual_Q))
 
         loss_dict["Active Power Loss"] = final_residual_real_bus.detach() * self.node_normalizers[dataloader_idx].baseMVA
         loss_dict["Reactive Power Loss"] = final_residual_imag_bus.detach() * self.node_normalizers[dataloader_idx].baseMVA
 
-        agg_gen_on_bus_target = gen2bus_agg(batch.y_dict["gen"], gen_to_bus_index, num_bus)
+        agg_gen_on_bus_target = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
 
         target = torch.cat([batch.y_dict["bus"], agg_gen_on_bus_target], dim=1)
 
-        output[:, VA_H] = output[:, VA_H] * 180.0 / torch.pi
-        output[:, PD_H] = output[:, PD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output[:, QD_H] = output[:, QD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output[:, QG_H] = output[:, QG_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output[:, 5] = output[:, 5] * self.node_normalizers[dataloader_idx].baseMVA
+        output_agg[:, VA_H] = output_agg[:, VA_H] * 180.0 / torch.pi
+        output_agg[:, PD_H] = output_agg[:, PD_H] * self.node_normalizers[dataloader_idx].baseMVA
+        output_agg[:, QD_H] = output_agg[:, QD_H] * self.node_normalizers[dataloader_idx].baseMVA
+        output_agg[:, QG_H] = output_agg[:, QG_H] * self.node_normalizers[dataloader_idx].baseMVA
+        output_agg[:, PG_B] = output_agg[:, PG_B] * self.node_normalizers[dataloader_idx].baseMVA
 
         target[:, VA_H] = target[:, VA_H] * 180.0 / torch.pi
         target[:, PD_H] = target[:, PD_H] * self.node_normalizers[dataloader_idx].baseMVA
         target[:, QD_H] = target[:, QD_H] * self.node_normalizers[dataloader_idx].baseMVA
         target[:, QG_H] = target[:, QG_H] * self.node_normalizers[dataloader_idx].baseMVA
-        target[:, 5] = target[:, 5] * self.node_normalizers[dataloader_idx].baseMVA
+        target[:, PG_B] = target[:, PG_B] * self.node_normalizers[dataloader_idx].baseMVA
 
         mask_PQ = batch.x_dict["bus"][:, PQ_H] == 1  # PQ buses
         mask_PV = batch.x_dict["bus"][:, PV_H] == 1  # PV buses
@@ -233,7 +278,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
         self.test_outputs.append({
             "dataset": dataset_name,
-            "pred": output.detach().cpu(),
+            "pred": output_agg.detach().cpu(),
             "target": target.detach().cpu(),
             "mask_PQ": mask_PQ.cpu(),
             "mask_PV": mask_PV.cpu(),
@@ -241,17 +286,17 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         })
 
         mse_PQ = F.mse_loss(
-            output[mask_PQ],
+            output_agg[mask_PQ],
             target[mask_PQ],
             reduction="none",
         )
         mse_PV = F.mse_loss(
-            output[mask_PV],
+            output_agg[mask_PV],
             target[mask_PV],
             reduction="none",
         )
         mse_REF = F.mse_loss(
-            output[mask_REF],
+            output_agg[mask_REF],
             target[mask_REF],
             reduction="none",
         )
@@ -261,7 +306,12 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         mse_REF = mse_REF.mean(dim=0)
 
         if self.args.data.mask_type == "opf_hetero":
+            loss_dict["Opt gap"] = optimality_gap
             loss_dict["MSE PG"] = mse_PG[PG_H]
+
+        loss_dict["Branch termal violation from"] = mean_thermal_violation_forward
+        loss_dict["Branch termal violation to"] = mean_thermal_violation_reverse
+        loss_dict["Branch voltage angle difference violations"] = branch_angle_violation_mean
 
         loss_dict["MSE PQ nodes - PD"] = mse_PQ[PD_H]
         loss_dict["MSE PV nodes - PD"] = mse_PV[PD_H]
@@ -358,6 +408,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                 grouped_metrics[dataset_name][metric] = value
 
         for dataset, metrics in grouped_metrics.items():
+            # RMSE metrics
             rmse_PQ = [
                 metrics.get(f"MSE PQ nodes - {label}", float("nan")) ** 0.5
                 for label in ["PD", "QD", "PG", "QG", "VM", "VA"]
@@ -371,65 +422,51 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                 for label in ["PD", "QD", "PG", "QG", "VM", "VA"]
             ]
 
+            # Residuals and generator metrics
             avg_active_res = metrics.get("Active Power Loss", " ")
             avg_reactive_res = metrics.get("Reactive Power Loss", " ")
+            rmse_gen = metrics.get("MSE PG", " ")
+            optimality_gap = metrics.get("Opt gap", " ")
+            branch_thermal_violation_from = metrics.get("Branch termal violation from", " ")
+            branch_thermal_violation_to = metrics.get("Branch termal violation to", " ")
+            branch_angle_violation = metrics.get("Branch voltage angle difference violations", " ")
 
-            if self.args.data.mask_type == "opf_hetero":
-                rmse_gen = metrics.get("MSE PG", " ")
+            # --- Main RMSE metrics file ---
+            data_main = {
+                "Metric": ["RMSE-PQ", "RMSE-PV", "RMSE-REF"],
+                "Pd (MW)": [rmse_PQ[0], rmse_PV[0], rmse_REF[0]],
+                "Qd (MVar)": [rmse_PQ[1], rmse_PV[1], rmse_REF[1]],
+                "Pg (MW)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2]],
+                "Qg (MVar)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3]],
+                "Vm (p.u.)": [rmse_PQ[4], rmse_PV[4], rmse_REF[4]],
+                "Va (degree)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5]],
+            }
+            df_main = pd.DataFrame(data_main)
 
-                data = {
-                    "Metric": [
-                        "RMSE-PQ",
-                        "RMSE-PV",
-                        "RMSE-REF",
-                        "Avg. active res. (MW)",
-                        "Avg. reactive res. (MVar)",
-                        "RMSE PG generators (MW)"
-                    ],
-                    "Pd (MW)": [
-                        rmse_PQ[0],
-                        rmse_PV[0],
-                        rmse_REF[0],
-                        avg_active_res,
-                        avg_reactive_res,
-                        rmse_gen,
-                    ],
-                    "Qd (MVar)": [rmse_PQ[1], rmse_PV[1], rmse_REF[1], " ", " ", " "],
-                    "Pg (MW)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2], " ", " ", " "],
-                    "Qg (MVar)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3], " ", " ", " "],
-                    "Vm (p.u.)": [rmse_PQ[4], rmse_PV[4], rmse_REF[4], " ", " ", " "],
-                    "Va (degree)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5], " ", " ", " "],
-                }
-            else:
-                data = {
-                    "Metric": [
-                        "RMSE-PQ",
-                        "RMSE-PV",
-                        "RMSE-REF",
-                        "Avg. active res. (MW)",
-                        "Avg. reactive res. (MVar)",
-                    ],
-                    "Pd (MW)": [
-                        rmse_PQ[0],
-                        rmse_PV[0],
-                        rmse_REF[0],
-                        avg_active_res,
-                        avg_reactive_res,
-                    ],
-                    "Qd (MVar)": [rmse_PQ[1], rmse_PV[1], rmse_REF[1], " ", " "],
-                    "Pg (MW)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2], " ", " "],
-                    "Qg (MVar)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3], " ", " "],
-                    "Vm (p.u.)": [rmse_PQ[4], rmse_PV[4], rmse_REF[4], " ", " "],
-                    "Va (degree)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5], " ", " "],
-                }
+            # --- Residuals / generator metrics file ---
+            data_residuals = {
+                "Metric": [
+                    "Avg. active res. (MW)",
+                    "Avg. reactive res. (MVar)",
+                    "RMSE PG generators (MW)",
+                    "Mean optimality gap (%)", 
+                    "Mean branch termal violation from (MVA)", 
+                    "Mean branch termal violation to (MVA)", 
+                    "Mean branch angle difference violation (degrees)",
+                ],
+                "Value": [avg_active_res, avg_reactive_res, rmse_gen, optimality_gap, branch_thermal_violation_from, branch_thermal_violation_to, branch_angle_violation]
+            }
+            df_residuals = pd.DataFrame(data_residuals)
 
-            df = pd.DataFrame(data)
-
+            # --- Save CSVs ---
             test_dir = os.path.join(artifact_dir, "test")
             os.makedirs(test_dir, exist_ok=True)
-            csv_path = os.path.join(test_dir, f"{dataset}.csv")
-            df.to_csv(csv_path, index=False)
-        
+
+            main_csv_path = os.path.join(test_dir, f"{dataset}_RMSE.csv")
+            residuals_csv_path = os.path.join(test_dir, f"{dataset}_metrics.csv")
+
+            df_main.to_csv(main_csv_path, index=False)
+            df_residuals.to_csv(residuals_csv_path, index=False)
         plot_dir = os.path.join(artifact_dir, "test_plots")
         os.makedirs(plot_dir, exist_ok=True)
 

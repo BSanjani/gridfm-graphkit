@@ -31,6 +31,13 @@ class GNN_PBE_TransformerConv(nn.Module):
             nn.LayerNorm(self.hidden_dim),
         )
 
+        self.input_proj_edge = nn.Sequential(
+            nn.Linear(self.edge_dim, self.hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+        )
+
         self.physics_mlp = nn.Sequential(
             nn.Linear(2, self.hidden_dim * self.heads),
             nn.LeakyReLU(),
@@ -42,7 +49,7 @@ class GNN_PBE_TransformerConv(nn.Module):
                     self.hidden_dim if i == 0 else self.hidden_dim * self.heads,
                     self.hidden_dim,
                     heads=self.heads,
-                    edge_dim=self.edge_dim,
+                    edge_dim=self.hidden_dim,
                     dropout=self.dropout,
                     beta=True,
                 )
@@ -86,9 +93,10 @@ class GNN_PBE_TransformerConv(nn.Module):
 
         # initial feature projection
         h = self.input_proj(x)
+        edge_attr_encoded = self.input_proj_edge(edge_attr)
 
         for i, conv in enumerate(self.layers):
-            h_new = self.activation(self.norms[i](conv(h, edge_index, edge_attr)))
+            h_new = self.activation(self.norms[i](conv(h, edge_index, edge_attr_encoded)))
 
             h = h + h_new if h_new.shape == h.shape else h_new
 

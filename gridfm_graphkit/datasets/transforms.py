@@ -204,7 +204,7 @@ class AddPFHeteroMask(BaseTransform):
 
         # --- REF buses ---
         mask_bus[mask_REF, QG_H] = True
-        mask_out[mask_REF, 5] = True  # PG_H for REF
+        mask_out[mask_REF, PG_B] = True  # PG_H for REF
         mask_out[mask_REF, QG_H] = True
 
         # --- Generators connected to REF buses ---
@@ -213,10 +213,15 @@ class AddPFHeteroMask(BaseTransform):
         ref_gens = gen_indices[mask_REF[bus_indices]]
         mask_gen[ref_gens, PG_H] = True
 
+        mask_branch = torch.zeros_like(data.edge_attr_dict[("bus", "connects", "bus")], dtype=torch.bool)
+        mask_branch[:, P_E] = True
+        mask_branch[:, Q_E] = True 
+
         data.mask_dict = {
             "bus": mask_bus,
             "gen": mask_gen,
-            "out": mask_out
+            "out": mask_out,
+            "branch": mask_branch
         }
 
         return data
@@ -254,13 +259,17 @@ class AddOPFHeteroMask(BaseTransform):
         # --- REF buses ---
         mask_bus[mask_REF, QG_H] = True
         mask_bus[mask_REF, VM_H] = True
-        mask_bus[mask_REF, VA_H] = True
 
         mask_gen[:, PG_H] = True
+
+        mask_branch = torch.zeros_like(data.edge_attr_dict[("bus", "connects", "bus")], dtype=torch.bool)
+        mask_branch[:, P_E] = True  
+        mask_branch[:, Q_E] = True 
 
         data.mask_dict = {
             "bus": mask_bus,
             "gen": mask_gen,
+            "branch": mask_branch,
         }
 
         return data

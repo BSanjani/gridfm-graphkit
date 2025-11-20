@@ -1,8 +1,4 @@
 from gridfm_graphkit.datasets.normalizers import Normalizer, BaseMVANormalizer
-from gridfm_graphkit.datasets.transforms import (
-    AddEdgeWeights,
-    AddNormalizedRandomWalkPE,
-)
 
 import os.path as osp
 import os
@@ -67,13 +63,16 @@ class HeteroGridDatasetDisk(Dataset):
             self.node_normalizer.fit_from_dict(self.node_stats)
             self.edge_normalizer.fit_from_dict(self.edge_stats)
 
+    # @property
+    # def raw_file_names(self):
+    #     return ["bus_data.csv", "gen_data.csv", "y_bus_data.csv"]
     @property
     def raw_file_names(self):
-        return ["bus_data.csv", "gen_data.csv", "y_bus_data.csv"]
+        return ["bus_data.parquet", "gen_data.parquet", "branch_data.parquet"]
 
     @property
     def processed_done_file(self):
-        return f"processed_{self.norm_method}.done"
+        return f"processed_no_y_bus_{self.norm_method}.done"
 
     @property
     def processed_file_names(self):
@@ -85,9 +84,9 @@ class HeteroGridDatasetDisk(Dataset):
     
     def process(self):
         print("Loading data...")
-        bus_data = pd.read_csv(osp.join(self.raw_dir, "bus_data.csv"))
-        gen_data = pd.read_csv(osp.join(self.raw_dir, "gen_data.csv"))
-        y_bus_data = pd.read_csv(osp.join(self.raw_dir, "y_bus_data.csv"))
+        bus_data = pd.read_parquet(osp.join(self.raw_dir, "bus_data.parquet"))
+        gen_data = pd.read_parquet(osp.join(self.raw_dir, "gen_data.parquet"))
+        branch_data = pd.read_parquet(osp.join(self.raw_dir, "branch_data.parquet"))
 
         agg_gen = gen_data.groupby(["scenario", "bus"])[["min_q_mvar", "max_q_mvar"]].sum().reset_index()
         bus_data = bus_data.merge(agg_gen, on=["scenario", "bus"], how="left").fillna(0)
@@ -106,10 +105,12 @@ class HeteroGridDatasetDisk(Dataset):
         torch.save(self.node_stats, node_stats_path)
         torch.save(self.edge_stats, edge_stats_path)
 
-        bus_features = ["Pd", "Qd", "Qg", "Vm", "Va", "PQ", "PV", "REF", "min_vm_pu", "max_vm_pu", "min_q_mvar", "max_q_mvar"]
+        bus_features = ["Pd", "Qd", "Qg", "Vm", "Va", "PQ", "PV", "REF", "min_vm_pu", "max_vm_pu", "min_q_mvar", "max_q_mvar", "GS", "BS"]
         gen_features = ["p_mw", "min_p_mw", "max_p_mw", "cp0_eur" , "cp1_eur_per_mw" , "cp2_eur_per_mw2"]
-        y_bus_features = ["G", "B"]
-
+        common_branch_features = ["tap", "ang_min", "ang_max", "rate_a"]
+        forward_branch_features = ["pf", "qf", "Yff_r", "Yff_i", "Yft_r", "Yft_i"] + common_branch_features
+        reverse_branch_features = ["pt", "qt", "Ytt_r", "Ytt_i", "Ytf_r", "Ytf_i"] + common_branch_features
+        
         print("Normalize data...")
         bus_tensor, gen_tensor = self.node_normalizer.transform(
             bus_data=torch.tensor(bus_data[bus_features].values, dtype=torch.float),
@@ -118,19 +119,15 @@ class HeteroGridDatasetDisk(Dataset):
         bus_data[bus_features] = bus_tensor.numpy()
         gen_data[gen_features] = gen_tensor.numpy()
 
-        y_bus_data[y_bus_features] = self.edge_normalizer.transform(
-            edge_data=torch.tensor(y_bus_data[y_bus_features].values, dtype=torch.float)
-        ).numpy()
-
         # Group by scenario
         bus_groups = bus_data.groupby("scenario")
         gen_groups = gen_data.groupby("scenario")
-        y_bus_groups = y_bus_data.groupby("scenario")
+        branch_groups = branch_data.groupby("scenario")
 
         # Process each scenario
         print("Save data...")
         for scenario in tqdm(bus_data["scenario"].unique(), desc="Processing scenarios"):
-            if scenario not in gen_groups.groups or scenario not in y_bus_groups.groups:
+            if scenario not in gen_groups.groups or scenario not in branch_groups.groups:
                 raise ValueError
 
             data = HeteroData()
@@ -150,14 +147,25 @@ class HeteroGridDatasetDisk(Dataset):
             data["gen"].y = data["gen"].x[: , :(PG_H+1)].clone()
 
             # Bus-Bus edges
-            y_bus_df = y_bus_groups.get_group(scenario)
+            branch_df = branch_groups.get_group(scenario)
+            branch_df = branch_df[branch_df["br_status"] != 0].reset_index(drop=True)
 
-            data["bus", "connects", "bus"].edge_index = torch.tensor(
-                y_bus_df[["index1", "index2"]].values.T, dtype=torch.long
-            )
-            data["bus", "connects", "bus"].edge_attr = torch.tensor(
-                y_bus_df[y_bus_features].values, dtype=torch.float
-            )
+            forward_edges = torch.tensor(branch_df[["from_bus","to_bus"]].values.T, dtype=torch.long)
+            forward_edge_attr = self.edge_normalizer.transform(edge_data=torch.tensor(branch_df[forward_branch_features].values, dtype=torch.float))
+            
+            reverse_edges = torch.tensor(branch_df[["to_bus","from_bus"]].values.T, dtype=torch.long)
+            reverse_edge_attr = self.edge_normalizer.transform(edge_data=torch.tensor(branch_df[reverse_branch_features].values, dtype=torch.float))
+
+            edge_index = torch.cat([forward_edges, reverse_edges], dim=1)
+            edge_attr = torch.cat([forward_edge_attr, reverse_edge_attr], dim=0)
+
+            forward_targets = torch.tensor(branch_df[["pf", "qf"]].values, dtype=torch.float)
+            reverse_targets = torch.tensor(branch_df[["pt", "qt"]].values, dtype=torch.float)
+            edge_y = torch.cat([forward_targets, reverse_targets], dim=0)
+
+            data["bus", "connects", "bus"].edge_index = edge_index
+            data["bus", "connects", "bus"].edge_attr = edge_attr
+            data["bus", "connects", "bus"].y = edge_y
 
             #data["bus", "connects", "bus"].edge_attr = self.edge_normalizer.transform(edge_data=data["bus", "connects", "bus"].edge_attr)
 
@@ -171,7 +179,7 @@ class HeteroGridDatasetDisk(Dataset):
                 
 
             # Save graph
-            torch.save(data, osp.join(self.processed_dir, f"data_{self.norm_method}_index_{scenario}.pt"))
+            torch.save(data, osp.join(self.processed_dir, f"data_no_y_bus_{self.norm_method}_index_{scenario}.pt"))
 
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
             f.write("done")
@@ -182,7 +190,7 @@ class HeteroGridDatasetDisk(Dataset):
                 f
                 for f in os.listdir(self.processed_dir)
                 if f.startswith(
-                    f"data_{self.norm_method}_index_",
+                    f"data_no_y_bus_{self.norm_method}_index_",
                 )
                 and f.endswith(".pt")
             ]
@@ -192,7 +200,7 @@ class HeteroGridDatasetDisk(Dataset):
     def get(self, idx):
         file_name = osp.join(
             self.processed_dir,
-            f"data_{self.norm_method}_index_{idx}.pt",
+            f"data_no_y_bus_{self.norm_method}_index_{idx}.pt",
         )
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")

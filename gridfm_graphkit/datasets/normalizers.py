@@ -369,9 +369,9 @@ class HeteroBaseMVANormalizer(Normalizer):
             gen_data[:, PG_H] = gen_data[:, PG_H] / self.baseMVA
             gen_data[:, MIN_PG] = gen_data[:, MIN_PG] / self.baseMVA
             gen_data[:, MAX_PG] = gen_data[:, MAX_PG] / self.baseMVA
-            gen_data[:, C0_H] = torch.log(1.0 + gen_data[:, C0_H])
-            gen_data[:, C1_H] = torch.log(1.0 + gen_data[:, C1_H])
-            gen_data[:, C2_H] = torch.log(1.0 + gen_data[:, C2_H])
+            gen_data[:, C0_H] = torch.sign(gen_data[:, C0_H]) * torch.log1p(torch.abs(gen_data[:, C0_H]))
+            gen_data[:, C1_H] = torch.sign(gen_data[:, C1_H]) * torch.log1p(torch.abs(gen_data[:, C1_H]))
+            gen_data[:, C2_H] = torch.sign(gen_data[:, C2_H]) * torch.log1p(torch.abs(gen_data[:, C2_H]))
             
 
             return bus_data, gen_data
@@ -401,9 +401,9 @@ class HeteroBaseMVANormalizer(Normalizer):
             gen_data[:, PG_H] = gen_data[:, PG_H] * self.baseMVA
             gen_data[:, MIN_PG] = gen_data[:, MIN_PG] * self.baseMVA
             gen_data[:, MAX_PG] = gen_data[:, MAX_PG] * self.baseMVA
-            gen_data[:, C0_H] = torch.exp(gen_data[:, C0_H]) - 1.0
-            gen_data[:, C1_H] = torch.exp(gen_data[:, C1_H]) - 1.0
-            gen_data[:, C2_H] = torch.exp(gen_data[:, C2_H]) - 1.0
+            gen_data[:, C0_H] = torch.sign(gen_data[:, C0_H]) * (torch.exp(torch.abs(gen_data[:, C0_H])) - 1)
+            gen_data[:, C1_H] = torch.sign(gen_data[:, C1_H]) * (torch.exp(torch.abs(gen_data[:, C1_H])) - 1)
+            gen_data[:, C2_H] = torch.sign(gen_data[:, C2_H]) * (torch.exp(torch.abs(gen_data[:, C2_H])) - 1)
 
             return bus_data, gen_data
 
@@ -412,6 +412,175 @@ class HeteroBaseMVANormalizer(Normalizer):
                 raise ValueError("edge_data must be provided for edge-level inverse normalization.")
 
             edge_data = edge_data * self.baseMVA / self.baseMVA_orig
+            return edge_data
+
+    def get_stats(self) -> dict:
+        return {
+            "baseMVA": self.baseMVA,
+            "baseMVA_orig": self.baseMVA_orig,
+        }
+@NORMALIZERS_REGISTRY.register("heterobaseMVAnormBranch")
+class HeteroBaseMVANormalizerBranch(Normalizer):
+    """
+    In power systems, a suitable normalization strategy must preserve the physical properties of
+    the system. A known method is the conversion to the per-unit (p.u.) system, which expresses
+    electrical quantities such as voltage, current, power, and impedance as fractions of predefined
+    base values. These base values are usually chosen based on system parameters, such as rated
+    voltage. The per-unit conversion ensures that power system equations remain scale-invariant,
+    preserving fundamental physical relationships.
+    """
+
+    def __init__(self, node_data: bool, args):
+        """
+        Args:
+            node_data: Whether data is node-level or edge-level
+            args (NestedNamespace): Parameters
+
+        Attributes:
+            baseMVA (float): baseMVA found in casefile. From ``args.data.baseMVA``.
+        """
+        self.node_data = node_data
+        self.baseMVA_orig = getattr(args.data, "baseMVA", 100)
+        self.baseMVA = None
+
+    def to(self, device):
+        pass
+
+    
+    def fit(self, baseMVA: Optional[float] = None, bus_data: Optional[pd.DataFrame] = None, gen_data: Optional[pd.DataFrame] = None) -> dict:
+        """
+        Fit method for both node-level and edge-level normalization.
+
+        - For node-level: pass `bus_data` and `gen_data`.
+        - For edge-level: pass `baseMVA` directly.
+        """
+        if self.node_data:
+            if bus_data is None or gen_data is None:
+                raise ValueError("bus_data and gen_data must be provided for node-level normalization.")
+
+            pd_values = bus_data["Pd"]
+            qd_values = bus_data["Qd"]
+            pg_values = gen_data["p_mw"]
+            qg_values = bus_data["Qg"]
+
+            non_zero_values = pd.concat([
+                pd_values[pd_values != 0],
+                qd_values[qd_values != 0],
+                pg_values[pg_values != 0],
+                qg_values[qg_values != 0]
+            ])
+
+            self.baseMVA = np.percentile(non_zero_values, 95)
+        else:
+            if baseMVA is None:
+                raise ValueError("baseMVA must be provided for edge-level normalization.")
+            self.baseMVA = baseMVA
+
+        return {"baseMVA_orig": self.baseMVA_orig, "baseMVA": self.baseMVA}
+
+
+    def fit_from_dict(self, params: dict):
+        if self.baseMVA is None:
+            self.baseMVA = params.get("baseMVA")
+        if self.baseMVA_orig is None:
+            self.baseMVA_orig = params.get("baseMVA_orig")
+
+    def transform(
+        self,
+        bus_data: torch.Tensor = None,
+        gen_data: torch.Tensor = None,
+        edge_data: torch.Tensor = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if self.baseMVA is None or self.baseMVA == 0:
+            raise ValueError("BaseMVA not properly set")
+
+        if self.node_data:
+            if bus_data is None or gen_data is None:
+                raise ValueError("bus_data and gen_data must be provided for node normalization")
+
+            # --- Node normalization ---
+            bus_data[:, PD_H] /= self.baseMVA
+            bus_data[:, QD_H] /= self.baseMVA
+            bus_data[:, QG_H] /= self.baseMVA
+            bus_data[:, MIN_QG_H] /= self.baseMVA
+            bus_data[:, MAX_QG_H] /= self.baseMVA
+            bus_data[:, VA_H] *= torch.pi / 180.0
+            bus_data[:, GS] *= self.baseMVA_orig / self.baseMVA
+            bus_data[:, BS] *= self.baseMVA_orig / self.baseMVA
+
+            gen_data[:, PG_H] /= self.baseMVA
+            gen_data[:, MIN_PG] /= self.baseMVA
+            gen_data[:, MAX_PG] /= self.baseMVA
+            gen_data[:, C0_H] = torch.sign(gen_data[:, C0_H]) * torch.log1p(torch.abs(gen_data[:, C0_H]))
+            gen_data[:, C1_H] = torch.sign(gen_data[:, C1_H]) * torch.log1p(torch.abs(gen_data[:, C1_H]))
+            gen_data[:, C2_H] = torch.sign(gen_data[:, C2_H]) * torch.log1p(torch.abs(gen_data[:, C2_H]))
+
+            return bus_data, gen_data
+
+        else:
+            if edge_data is None:
+                raise ValueError("edge_data must be provided for edge normalization")
+
+            # --- Edge normalization ---
+            # Power flows
+            edge_data[:, P_E] /= self.baseMVA
+            edge_data[:, Q_E] /= self.baseMVA
+
+            # Admittances
+            edge_data[:, YFF_TT_R:YFT_TF_I + 1] *= self.baseMVA_orig / self.baseMVA
+
+            # Tap ratio unchanged
+            # Angles to radians
+            edge_data[:, ANG_MIN] *= torch.pi / 180.0
+            edge_data[:, ANG_MAX] *= torch.pi / 180.0
+
+            # Thermal limit
+            edge_data[:, RATE_A] /= self.baseMVA
+
+            # BR_STATUS unchanged
+            return edge_data
+
+    def inverse_transform(
+        self,
+        bus_data: torch.Tensor = None,
+        gen_data: torch.Tensor = None,
+        edge_data: torch.Tensor = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if self.node_data:
+            if bus_data is None or gen_data is None:
+                raise ValueError("bus_data and gen_data must be provided for inverse node normalization")
+
+            bus_data[:, PD_H] *= self.baseMVA
+            bus_data[:, QD_H] *= self.baseMVA
+            bus_data[:, QG_H] *= self.baseMVA
+            bus_data[:, MIN_QG_H] *= self.baseMVA
+            bus_data[:, MAX_QG_H] *= self.baseMVA
+            bus_data[:, VA_H] *= 180.0 / torch.pi
+            bus_data[:, GS] *= self.baseMVA / self.baseMVA_orig
+            bus_data[:, BS] *= self.baseMVA / self.baseMVA_orig
+
+            gen_data[:, PG_H] *= self.baseMVA
+            gen_data[:, MIN_PG] *= self.baseMVA
+            gen_data[:, MAX_PG] *= self.baseMVA
+            gen_data[:, C0_H] = torch.sign(gen_data[:, C0_H]) * (torch.exp(torch.abs(gen_data[:, C0_H])) - 1)
+            gen_data[:, C1_H] = torch.sign(gen_data[:, C1_H]) * (torch.exp(torch.abs(gen_data[:, C1_H])) - 1)
+            gen_data[:, C2_H] = torch.sign(gen_data[:, C2_H]) * (torch.exp(torch.abs(gen_data[:, C2_H])) - 1)
+
+            return bus_data, gen_data
+
+        else:
+            if edge_data is None:
+                raise ValueError("edge_data must be provided for inverse edge normalization")
+
+            edge_data[:, P_E] *= self.baseMVA
+            edge_data[:, Q_E] *= self.baseMVA
+
+            edge_data[:, YFF_TT_R:YFT_TF_I + 1] *= self.baseMVA / self.baseMVA_orig
+
+            edge_data[:, ANG_MIN] *= 180.0 / torch.pi
+            edge_data[:, ANG_MAX] *= 180.0 / torch.pi
+            edge_data[:, RATE_A] *= self.baseMVA
+
             return edge_data
 
     def get_stats(self) -> dict:

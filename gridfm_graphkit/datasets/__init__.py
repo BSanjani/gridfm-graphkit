@@ -11,6 +11,7 @@ from gridfm_graphkit.datasets.normalizers import (
     BaseMVANormalizer,
     IdentityNormalizer,
     HeteroBaseMVANormalizer,
+    HeteroBaseMVANormalizerBranch,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "IdentityNormalizer",
     "HeteroBaseMVANormalizer",
     "AddPFHeteroMask",
+    "HeteroBaseMVANormalizerBranch",
 ]
