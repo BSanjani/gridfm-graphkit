@@ -7,11 +7,11 @@ data:
   mask_ratio: 0.5
   mask_value: 0.0
   mask_type: opf_hetero
-  normalization: heterobaseMVAnormBranch
+  normalization: HeteroDataMVANormalizer
   networks:
   - case57_ieee
   scenarios:
-  - 300000
+  - 100000
   test_ratio: 0.1
   val_ratio: 0.1
   workers: 32
@@ -19,7 +19,7 @@ model:
   attention_head: 8
   edge_dim: 10
   hidden_size: 48
-  input_bus_dim: 14
+  input_bus_dim: 15
   input_gen_dim: 6
   output_bus_dim: 5
   output_gen_dim: 1
@@ -30,17 +30,19 @@ optimizer:
   beta2: 0.999
   learning_rate: 0.0001
   lr_decay: 0.7
-  lr_patience: 7
+  lr_patience: 5
 seed: 0
 training:
   batch_size: 32
   epochs: 200
   loss_weights:
   - 0.1
-  - 0.9
+  - 0.1
+  - 0.8
   losses:
   - LayeredWeightedPhysics
-  - MaskedOPFHetero
+  - MaskedGenMSE
+  - MaskedBusMSE
   base_weight: 0.6
   accelerator: auto
   devices: auto

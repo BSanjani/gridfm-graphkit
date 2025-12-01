@@ -9,12 +9,12 @@ data:
   mask_type: opf_hetero
   normalization: HeteroDataMVANormalizer
   networks:
-  - case500_goc
+  - case1354_pegase
   scenarios:
   - 100000
   test_ratio: 0.1
   val_ratio: 0.1
-  workers: 16
+  workers: 8
 model:
   attention_head: 8
   edge_dim: 10
@@ -28,12 +28,12 @@ model:
 optimizer:
   beta1: 0.9
   beta2: 0.999
-  learning_rate: 0.0001
+  learning_rate: 0.0004
   lr_decay: 0.7
   lr_patience: 5
 seed: 0
 training:
-  batch_size: 4
+  batch_size: 16
   epochs: 200
   loss_weights:
   - 0.1

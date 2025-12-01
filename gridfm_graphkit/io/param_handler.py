@@ -64,9 +64,8 @@ def load_normalizer(args):
     try:
         return NORMALIZERS_REGISTRY.create(
             method,
-            True,
             args,
-        ), NORMALIZERS_REGISTRY.create(method, False, args)
+        )
     except KeyError:
         raise ValueError(f"Unknown transformation: {method}")
 

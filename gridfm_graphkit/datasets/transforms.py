@@ -182,6 +182,7 @@ class AddPFHeteroMask(BaseTransform):
         mask_bus[:, MAX_VM_H] = True
         mask_bus[:, MIN_QG_H] = True
         mask_bus[:, MAX_QG_H] = True
+        mask_bus[:, VN_KV] = True
 
         mask_gen[:, MIN_PG] = True
         mask_gen[:, MAX_PG] = True
@@ -193,19 +194,14 @@ class AddPFHeteroMask(BaseTransform):
         # --- PQ buses ---
         mask_bus[mask_PQ, VM_H] = True
         mask_bus[mask_PQ, VA_H] = True
-        mask_out[mask_PQ, VM_H] = True
-        mask_out[mask_PQ, VA_H] = True
 
         # --- PV buses ---
         mask_bus[mask_PV, VA_H] = True
         mask_bus[mask_PV, QG_H] = True
-        mask_out[mask_PV, VA_H] = True
-        mask_out[mask_PV, QG_H] = True
 
         # --- REF buses ---
         mask_bus[mask_REF, QG_H] = True
         mask_out[mask_REF, PG_B] = True  # PG_H for REF
-        mask_out[mask_REF, QG_H] = True
 
         # --- Generators connected to REF buses ---
         gen_bus_edges = data.edge_index_dict[("gen", "connected_to", "bus")]

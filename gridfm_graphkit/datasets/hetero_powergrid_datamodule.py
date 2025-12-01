@@ -31,8 +31,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
 
     Attributes:
         batch_size (int): Batch size for all dataloaders. From ``args.training.batch_size``
-        node_normalizers (list): List of node feature normalizers, one per dataset.
-        edge_normalizers (list): List of edge feature normalizers, one per dataset.
+        data_normalizers (list): List of data normalizers, one per dataset.
         datasets (list): Original datasets for each network.
         train_datasets (list): Train splits for each network.
         val_datasets (list): Validation splits for each network.
@@ -82,8 +81,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = int(args.training.batch_size)
         self.args = args
-        self.node_normalizers = []
-        self.edge_normalizers = []
+        self.data_normalizers = []
         self.datasets = []
         self.train_datasets = []
         self.val_datasets = []
@@ -96,9 +94,8 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             return
 
         for i, network in enumerate(self.args.data.networks):
-            node_normalizer, edge_normalizer = load_normalizer(args=self.args)
-            self.node_normalizers.append(node_normalizer)
-            self.edge_normalizers.append(edge_normalizer)
+            data_normalizer = load_normalizer(args=self.args)
+            self.data_normalizers.append(data_normalizer)
 
             # Create torch dataset and split
             data_path_network = os.path.join(self.data_dir, network)
@@ -109,8 +106,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
                 _ = HeteroGridDatasetDisk(  # just to trigger processing
                     root=data_path_network,
                     norm_method=self.args.data.normalization,
-                    node_normalizer=node_normalizer,
-                    edge_normalizer=edge_normalizer,
+                    data_normalizer=data_normalizer,
                     transform=get_transform(args=self.args),
                 )
 
@@ -121,8 +117,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             dataset = HeteroGridDatasetDisk(
                 root=data_path_network,
                 norm_method=self.args.data.normalization,
-                node_normalizer=node_normalizer,
-                edge_normalizer=edge_normalizer,
+                data_normalizer=data_normalizer,
                 transform=get_transform(args=self.args),
             )
             self.datasets.append(dataset)

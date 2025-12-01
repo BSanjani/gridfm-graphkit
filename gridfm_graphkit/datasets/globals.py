@@ -59,6 +59,7 @@ MIN_QG_H    = 10  # Minimum reactive power limit (Mvar)
 MAX_QG_H    = 11  # Maximum reactive power limit (Mvar)
 GS          = 12  # Shunt conductance (p.u.)
 BS          = 13  # Shunt susceptance (p.u.)
+VN_KV       = 14  # Nominal voltage
 
 # ================================
 # === GENERATOR FEATURE INDICES ==

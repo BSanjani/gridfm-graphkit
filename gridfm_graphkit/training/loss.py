@@ -88,6 +88,36 @@ class MaskedOPFHeteroLoss(torch.nn.Module):
 
         return {"loss": combined_loss, "Masked MSE loss": combined_loss.detach()}
 
+@LOSS_REGISTRY.register("MaskedGenMSE")
+class MaskedGenMSE(torch.nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        self.reduction = "mean"
+
+    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+        loss = F.mse_loss(
+            pred_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
+            target_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
+            reduction=self.reduction
+        )
+        return {"loss": loss, "Masked generator MSE loss": loss.detach()}
+
+
+@LOSS_REGISTRY.register("MaskedBusMSE")
+class MaskedBusMSE(torch.nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        self.reduction = "mean"
+
+    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+        loss = F.mse_loss(
+            pred_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
+            target_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
+            reduction=self.reduction
+        )
+        return {"loss": loss, "Masked bus MSE loss": loss.detach()}
+
+
 @LOSS_REGISTRY.register("MSE")
 class MSELoss(BaseLoss):
     """Standard Mean Squared Error loss."""

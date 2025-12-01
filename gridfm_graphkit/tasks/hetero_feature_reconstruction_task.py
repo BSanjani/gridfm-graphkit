@@ -10,12 +10,10 @@ from lightning.pytorch.loggers import MLFlowLogger
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
 import torch.nn.functional as F
 from gridfm_graphkit.datasets.globals import *
-from gridfm_graphkit.models.gnn_heterogeneous_gns import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
+from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
 from torch_scatter import scatter_add
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.colors import LogNorm
-
 
 class HeteroFeatureReconstructionTask(L.LightningModule):
     """
@@ -28,15 +26,13 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
     Args:
         args (NestedNamespace): Experiment configuration. Expected fields include `training.batch_size`, `optimizer.*`, etc.
-        node_normalizers (list): One normalizer per dataset to (de)normalize node features.
-        edge_normalizers (list): One normalizer per dataset to (de)normalize edge features.
+        data_normalizers (list): One normalizer per dataset to (de)normalize features.
 
     Attributes:
         model (torch.nn.Module): model loaded via `load_model`.
         loss_fn (callable): Loss function resolved from configuration.
         batch_size (int): Training batch size. From ``args.training.batch_size``
-        node_normalizers (list): Dataset-wise node feature normalizers.
-        edge_normalizers (list): Dataset-wise edge feature normalizers.
+        data_normalizers (list): Dataset-wise feature normalizers.
 
     Methods:
         forward(x, pe, edge_index, edge_attr, batch, mask=None):
@@ -64,19 +60,18 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
     Example:
         ```python
-        model = FeatureReconstructionTask(args, node_normalizers, edge_normalizers)
+        model = FeatureReconstructionTask(args, data_normalizers)
         output = model(batch.x, batch.pe, batch.edge_index, batch.edge_attr, batch.batch)
         ```
     """
 
-    def __init__(self, args, node_normalizers, edge_normalizers):
+    def __init__(self, args, data_normalizers):
         super().__init__()
         self.model = load_model(args=args)
         self.args = args
         self.loss_fn = get_loss_function(args)
         self.batch_size = int(args.training.batch_size)
-        self.node_normalizers = node_normalizers
-        self.edge_normalizers = edge_normalizers
+        self.data_normalizers = data_normalizers
         self.test_outputs = []
         self.save_hyperparameters()
 
@@ -105,14 +100,9 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
         # Collect normalization stats
         with open(log_stats_path, "w") as log_file:
-            for i, normalizer in enumerate(self.node_normalizers):
+            for i, normalizer in enumerate(self.data_normalizers):
                 log_file.write(
-                    f"Node Normalizer {self.args.data.networks[i]} stats:\n{normalizer.get_stats()}\n\n",
-                )
-
-            for i, normalizer in enumerate(self.edge_normalizers):
-                log_file.write(
-                    f"Edge Normalizer {self.args.data.networks[i]} stats:\n{normalizer.get_stats()}\n\n",
+                    f"Data Normalizer {self.args.data.networks[i]} stats:\n{normalizer.get_stats()}\n\n",
                 )
 
     def shared_step(self, batch):
@@ -172,11 +162,10 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         output, loss_dict = self.shared_step(batch)
-
         dataset_name = self.args.data.networks[dataloader_idx]
 
-        self.node_normalizers[dataloader_idx].to(self.device)
-        self.edge_normalizers[dataloader_idx].to(self.device)
+        self.data_normalizers[dataloader_idx].inverse_transform(batch)
+        self.data_normalizers[dataloader_idx].inverse_output(output)
 
         branch_flow_layer = ComputeBranchFlow()
         node_injection_layer = ComputeNodeInjection()
@@ -189,16 +178,15 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
         if self.args.data.mask_type == "opf_hetero":
             mse_PG = F.mse_loss(
-                output["gen"] * self.node_normalizers[dataloader_idx].baseMVA,
-                batch.y_dict["gen"] * self.node_normalizers[dataloader_idx].baseMVA,
+                output["gen"],
+                batch.y_dict["gen"],
                 reduction="none",
             ).mean(dim=0)
-            c0 = torch.sign(batch.x_dict["gen"][:, C0_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C0_H])) - 1) 
-            c1 = torch.sign(batch.x_dict["gen"][:, C1_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C1_H])) - 1)
-            c2 = torch.sign(batch.x_dict["gen"][:, C2_H]) * (torch.exp(torch.abs(batch.x_dict["gen"][:, C2_H])) - 1)
-            target_pg = batch.y_dict["gen"].squeeze() * self.node_normalizers[dataloader_idx].baseMVA
-            pred_pg = output["gen"].squeeze() * self.node_normalizers[dataloader_idx].baseMVA            
-
+            c0 = batch.x_dict["gen"][:, C0_H]
+            c1 = batch.x_dict["gen"][:, C1_H]
+            c2 = batch.x_dict["gen"][:, C2_H]
+            target_pg = batch.y_dict["gen"].squeeze()
+            pred_pg = output["gen"].squeeze() 
             gen_cost_gt = c0 + c1 * target_pg + c2 * target_pg**2
             gen_cost_pred = c0 + c1 * pred_pg + c2 * pred_pg**2
 
@@ -210,15 +198,10 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
             optimality_gap = torch.mean(torch.abs((cost_pred - cost_gt) / cost_gt * 100))
         
-            agg_gen_on_bus = scatter_add(output["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-            output_agg = torch.cat([output["bus"], agg_gen_on_bus], dim=1)
-        else:
-            agg_gen_on_bus = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-            output_agg = output
-            #output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+        agg_gen_on_bus = scatter_add(output["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
+        output_agg = torch.cat([output["bus"], agg_gen_on_bus], dim=1)
 
         Pft, Qft = branch_flow_layer(output_agg, bus_edge_index, bus_edge_attr)
-        torch.set_printoptions(profile="full")
         # Compute branch termal limits violations
         Sft = torch.sqrt(Pft**2 + Qft**2)  # apparent power flow per branch
         branch_thermal_limits = bus_edge_attr[:, RATE_A]
@@ -230,8 +213,8 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         reverse_excess = branch_thermal_excess[half_edges:]
 
 
-        mean_thermal_violation_forward = torch.mean(forward_excess) * self.node_normalizers[dataloader_idx].baseMVA
-        mean_thermal_violation_reverse = torch.mean(reverse_excess) * self.node_normalizers[dataloader_idx].baseMVA
+        mean_thermal_violation_forward = torch.mean(forward_excess)
+        mean_thermal_violation_reverse = torch.mean(reverse_excess)
 
         # Compute branch angle difference violation
         angle_min = bus_edge_attr[:, ANG_MIN]
@@ -253,24 +236,12 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         final_residual_real_bus = torch.mean(torch.abs(residual_P))
         final_residual_imag_bus = torch.mean(torch.abs(residual_Q))
 
-        loss_dict["Active Power Loss"] = final_residual_real_bus.detach() * self.node_normalizers[dataloader_idx].baseMVA
-        loss_dict["Reactive Power Loss"] = final_residual_imag_bus.detach() * self.node_normalizers[dataloader_idx].baseMVA
+        loss_dict["Active Power Loss"] = final_residual_real_bus.detach()
+        loss_dict["Reactive Power Loss"] = final_residual_imag_bus.detach()
 
         agg_gen_on_bus_target = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
 
         target = torch.cat([batch.y_dict["bus"], agg_gen_on_bus_target], dim=1)
-
-        output_agg[:, VA_H] = output_agg[:, VA_H] * 180.0 / torch.pi
-        output_agg[:, PD_H] = output_agg[:, PD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output_agg[:, QD_H] = output_agg[:, QD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output_agg[:, QG_H] = output_agg[:, QG_H] * self.node_normalizers[dataloader_idx].baseMVA
-        output_agg[:, PG_B] = output_agg[:, PG_B] * self.node_normalizers[dataloader_idx].baseMVA
-
-        target[:, VA_H] = target[:, VA_H] * 180.0 / torch.pi
-        target[:, PD_H] = target[:, PD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        target[:, QD_H] = target[:, QD_H] * self.node_normalizers[dataloader_idx].baseMVA
-        target[:, QG_H] = target[:, QG_H] * self.node_normalizers[dataloader_idx].baseMVA
-        target[:, PG_B] = target[:, PG_B] * self.node_normalizers[dataloader_idx].baseMVA
 
         mask_PQ = batch.x_dict["bus"][:, PQ_H] == 1  # PQ buses
         mask_PV = batch.x_dict["bus"][:, PV_H] == 1  # PV buses
@@ -351,13 +322,13 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         return
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        raise NotImplementedError
         output, _ = self.shared_step(batch)
-        output_denorm = self.node_normalizers[dataloader_idx].inverse_transform(output)
+        self.data_normalizers[dataloader_idx].inverse_output(output)
 
-        # Masks for node types
-        mask_PQ = (batch.x_dict["bus"][:, PQ_H] == 1).cpu()  # PQ buses
-        mask_PV = (batch.x_dict["bus"][:, PV_H] == 1).cpu()  # PV buses
-        mask_REF = (batch.x_dict["bus"][:, REF_H] == 1).cpu()  # Reference buses
+        mask_PQ = batch.x_dict["bus"][:, PQ_H] == 1  # PQ buses
+        mask_PV = batch.x_dict["bus"][:, PV_H] == 1  # PV buses
+        mask_REF = batch.x_dict["bus"][:, REF_H] == 1  # Reference buses
 
         # Count buses and generate per-node scenario_id
         bus_counts = batch.batch.unique(return_counts=True)[1]
@@ -425,7 +396,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
             # Residuals and generator metrics
             avg_active_res = metrics.get("Active Power Loss", " ")
             avg_reactive_res = metrics.get("Reactive Power Loss", " ")
-            rmse_gen = metrics.get("MSE PG", " ")
+            rmse_gen = metrics.get("MSE PG", " ") ** 0.5
             optimality_gap = metrics.get("Opt gap", " ")
             branch_thermal_violation_from = metrics.get("Branch termal violation from", " ")
             branch_thermal_violation_to = metrics.get("Branch termal violation to", " ")
@@ -439,7 +410,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                 "Pg (MW)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2]],
                 "Qg (MVar)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3]],
                 "Vm (p.u.)": [rmse_PQ[4], rmse_PV[4], rmse_REF[4]],
-                "Va (degree)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5]],
+                "Va (radians)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5]],
             }
             df_main = pd.DataFrame(data_main)
 
@@ -452,7 +423,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                     "Mean optimality gap (%)", 
                     "Mean branch termal violation from (MVA)", 
                     "Mean branch termal violation to (MVA)", 
-                    "Mean branch angle difference violation (degrees)",
+                    "Mean branch angle difference violation (radians)",
                 ],
                 "Value": [avg_active_res, avg_reactive_res, rmse_gen, optimality_gap, branch_thermal_violation_from, branch_thermal_violation_to, branch_angle_violation]
             }
@@ -520,7 +491,12 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         self.test_outputs.clear()
 
     def configure_optimizers(self):
-        self.optimizer = torch.optim.Adam(
+        # self.optimizer = torch.optim.Adam(
+        #     self.model.parameters(),
+        #     lr=self.args.optimizer.learning_rate,
+        #     betas=(self.args.optimizer.beta1, self.args.optimizer.beta2),
+        # )
+        self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.args.optimizer.learning_rate,
             betas=(self.args.optimizer.beta1, self.args.optimizer.beta2),

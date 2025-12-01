@@ -1,4 +1,3 @@
-from gridfm_graphkit.datasets.powergrid_datamodule import LitGridDataModule
 from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDataModule
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
@@ -9,7 +8,6 @@ import torch
 import random
 import pandas as pd
 
-from gridfm_graphkit.tasks.feature_reconstruction_task import FeatureReconstructionTask
 from gridfm_graphkit.tasks.hetero_feature_reconstruction_task import HeteroFeatureReconstructionTask
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
@@ -59,17 +57,10 @@ def main_cli(args):
     np.random.seed(config_args.seed)
 
     litGrid = LitGridHeteroDataModule(config_args, args.data_path)
-    #litGrid = LitGridDataModule(config_args, args.data_path)
     model = HeteroFeatureReconstructionTask(
         config_args,
-        litGrid.node_normalizers,
-        litGrid.edge_normalizers,
+        litGrid.data_normalizers
     )
-    # model = FeatureReconstructionTask(
-    #     config_args,
-    #     litGrid.node_normalizers,
-    #     litGrid.edge_normalizers,
-    # )
     if args.command != "train":
         print(f"Loading model weights from {args.model_path}")
         state_dict = torch.load(args.model_path, map_location="cpu")
