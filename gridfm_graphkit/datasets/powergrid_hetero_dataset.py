@@ -93,8 +93,8 @@ class HeteroGridDatasetDisk(Dataset):
             return
 
         bus_features = ["Pd", "Qd", "Qg", "Vm", "Va", "PQ", "PV", "REF", "min_vm_pu", "max_vm_pu", "min_q_mvar", "max_q_mvar", "GS", "BS", "vn_kv"]
-        gen_features = ["p_mw", "min_p_mw", "max_p_mw", "cp0_eur" , "cp1_eur_per_mw" , "cp2_eur_per_mw2"]
-        common_branch_features = ["tap", "ang_min", "ang_max", "rate_a"]
+        gen_features = ["p_mw", "min_p_mw", "max_p_mw", "cp0_eur" , "cp1_eur_per_mw" , "cp2_eur_per_mw2", "in_service"]
+        common_branch_features = ["tap", "ang_min", "ang_max", "rate_a", "br_status"]
         forward_branch_features = ["pf", "qf", "Yff_r", "Yff_i", "Yft_r", "Yft_i"] + common_branch_features
         reverse_branch_features = ["pt", "qt", "Ytt_r", "Ytt_i", "Ytf_r", "Ytf_i"] + common_branch_features
 
@@ -124,7 +124,6 @@ class HeteroGridDatasetDisk(Dataset):
 
             # Bus-Bus edges
             branch_df = branch_groups.get_group(scenario)
-            branch_df = branch_df[branch_df["br_status"] != 0].reset_index(drop=True)
 
             forward_edges = torch.tensor(branch_df[["from_bus","to_bus"]].values.T, dtype=torch.long)
             forward_edge_attr = torch.tensor(branch_df[forward_branch_features].values, dtype=torch.float)
@@ -180,8 +179,69 @@ class HeteroGridDatasetDisk(Dataset):
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")
         data = torch.load(file_name, weights_only=False)
+        data = self.remove_unused_generators(data)
+        data = self.remove_unused_branches(data)
         self.data_normalizer.transform(data=data)
         return data
+
+    def remove_unused_generators(self, data: HeteroData):
+        """
+        Removes generators where G_ON == 0.
+        Uses the global index G_ON to access generator on/off flag.
+        """
+
+        # Mask of generators that are ON
+        active_mask = data["gen"].x[:, G_ON] == 1
+
+        num_gen = data["gen"].num_nodes
+
+        # Mapping old generator IDs → new compact IDs
+        old_to_new = torch.full((num_gen,), -1, dtype=torch.long)
+        old_to_new[active_mask] = torch.arange(active_mask.sum())
+
+        # Filter generator node features
+        data["gen"].x = data["gen"].x[active_mask]
+        data["gen"].x = data["gen"].x[:, :G_ON]
+        data["gen"].y = data["gen"].y[active_mask]
+
+        # ---- Update hetero edges ----
+
+        # gen → bus edges
+        e = data["gen", "connected_to", "bus"].edge_index
+        keep = active_mask[e[0]]             # generator is source
+        new_e = e[:, keep].clone()
+        new_e[0] = old_to_new[new_e[0]]
+        data["gen", "connected_to", "bus"].edge_index = new_e
+
+        # bus → gen edges
+        e = data["bus", "connected_to", "gen"].edge_index
+        keep = active_mask[e[1]]             # generator is target
+        new_e = e[:, keep].clone()
+        new_e[1] = old_to_new[new_e[1]]
+        data["bus", "connected_to", "gen"].edge_index = new_e
+
+        return data
+
+    
+    def remove_unused_branches(self, data: HeteroData):
+        """
+        Removes branches where B_ON == 0.
+        Uses global index B_ON in edge_attr.
+        """
+
+        et = ("bus", "connects", "bus")
+
+        # Mask for active (in-service) branches
+        active_mask = data[et].edge_attr[:, B_ON] == 1
+
+        # Apply the mask
+        data[et].edge_index = data[et].edge_index[:, active_mask]
+        data[et].edge_attr = data[et].edge_attr[active_mask]
+        data[et].edge_attr = data[et].edge_attr[:, :B_ON]
+        data[et].y = data[et].y[active_mask]
+
+        return data
+
 
     def change_transform(self, new_transform):
         """

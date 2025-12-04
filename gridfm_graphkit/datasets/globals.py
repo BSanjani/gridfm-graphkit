@@ -70,17 +70,19 @@ MAX_PG      = 2   # Maximum active power limit (MW)
 C0_H        = 3   # Cost coefficient c0 (€)
 C1_H        = 4   # Cost coefficient c1 (€ / MW)
 C2_H        = 5   # Cost coefficient c2 (€ / MW²)
+G_ON        = 6   # Generator on/off
 
 # ============================
 # === EDGE FEATURE INDICES ===
 # ============================
-P_E = 0          # Active power flow
-Q_E = 1          # Reactive power flow
-YFF_TT_R = 2        # Yff real
-YFF_TT_I = 3        # Yff imag
-YFT_TF_R = 4        # Yft real
-YFT_TF_I = 5        # Yft imag
-TAP = 6          # Tap ratio
-ANG_MIN = 7      # Angle min (deg)
-ANG_MAX = 8      # Angle max (deg)
-RATE_A = 9       # Thermal limit
+P_E         = 0   # Active power flow
+Q_E         = 1   # Reactive power flow
+YFF_TT_R    = 2   # Yff real
+YFF_TT_I    = 3   # Yff imag
+YFT_TF_R    = 4   # Yft real
+YFT_TF_I    = 5   # Yft imag
+TAP         = 6   # Tap ratio
+ANG_MIN     = 7   # Angle min (deg)
+ANG_MAX     = 8   # Angle max (deg)
+RATE_A      = 9   # Thermal limit
+B_ON        = 10  # Branch on/off
