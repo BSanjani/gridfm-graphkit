@@ -198,10 +198,14 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
             optimality_gap = torch.mean(torch.abs((cost_pred - cost_gt) / cost_gt * 100))
         
-        agg_gen_on_bus = scatter_add(output["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-        output_agg = torch.cat([output["bus"], agg_gen_on_bus], dim=1)
+        agg_gen_on_bus = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
+        #output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+        target = torch.stack([batch.y_dict['bus'][:, VM_H], batch.y_dict['bus'][:, VA_H], agg_gen_on_bus.squeeze(), batch.y_dict['bus'][:, QG_H]], dim=1)
+        
+        # UN-COMMENT THIS TO CHECK PBE ON GROUND TRUTH
+        #output["bus"] = target 
 
-        Pft, Qft = branch_flow_layer(output_agg, bus_edge_index, bus_edge_attr)
+        Pft, Qft = branch_flow_layer(output["bus"], bus_edge_index, bus_edge_attr)
         # Compute branch termal limits violations
         Sft = torch.sqrt(Pft**2 + Qft**2)  # apparent power flow per branch
         branch_thermal_limits = bus_edge_attr[:, RATE_A]
@@ -220,7 +224,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         angle_min = bus_edge_attr[:, ANG_MIN]
         angle_max = bus_edge_attr[:, ANG_MAX]
 
-        bus_angles = output_agg[:, VA_H]  # in degrees
+        bus_angles = output["bus"][:, VA_OUT]  # in degrees
         from_bus = bus_edge_index[0]
         to_bus = bus_edge_index[1]
         angle_diff = torch.abs(bus_angles[from_bus] - bus_angles[to_bus])
@@ -231,7 +235,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
 
 
         P_in, Q_in = node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
-        residual_P, residual_Q = node_residuals_layer(P_in, Q_in, output_agg, batch.x_dict["bus"], agg_gen_on_bus.squeeze())
+        residual_P, residual_Q = node_residuals_layer(P_in, Q_in, output["bus"], batch.x_dict["bus"])
 
         final_residual_real_bus = torch.mean(torch.abs(residual_P))
         final_residual_imag_bus = torch.mean(torch.abs(residual_Q))
@@ -239,17 +243,13 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         loss_dict["Active Power Loss"] = final_residual_real_bus.detach()
         loss_dict["Reactive Power Loss"] = final_residual_imag_bus.detach()
 
-        agg_gen_on_bus_target = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-
-        target = torch.cat([batch.y_dict["bus"], agg_gen_on_bus_target], dim=1)
-
-        mask_PQ = batch.x_dict["bus"][:, PQ_H] == 1  # PQ buses
-        mask_PV = batch.x_dict["bus"][:, PV_H] == 1  # PV buses
-        mask_REF = batch.x_dict["bus"][:, REF_H] == 1  # Reference buses
+        mask_PQ = batch.mask_dict["PQ"]  # PQ buses
+        mask_PV = batch.mask_dict["PV"]  # PV buses
+        mask_REF = batch.mask_dict["REF"] # Reference buses
 
         self.test_outputs.append({
             "dataset": dataset_name,
-            "pred": output_agg.detach().cpu(),
+            "pred": output["bus"].detach().cpu(),
             "target": target.detach().cpu(),
             "mask_PQ": mask_PQ.cpu(),
             "mask_PV": mask_PV.cpu(),
@@ -257,17 +257,17 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         })
 
         mse_PQ = F.mse_loss(
-            output_agg[mask_PQ],
+            output["bus"][mask_PQ],
             target[mask_PQ],
             reduction="none",
         )
         mse_PV = F.mse_loss(
-            output_agg[mask_PV],
+            output["bus"][mask_PV],
             target[mask_PV],
             reduction="none",
         )
         mse_REF = F.mse_loss(
-            output_agg[mask_REF],
+            output["bus"][mask_REF],
             target[mask_REF],
             reduction="none",
         )
@@ -284,29 +284,21 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
         loss_dict["Branch termal violation to"] = mean_thermal_violation_reverse
         loss_dict["Branch voltage angle difference violations"] = branch_angle_violation_mean
 
-        loss_dict["MSE PQ nodes - PD"] = mse_PQ[PD_H]
-        loss_dict["MSE PV nodes - PD"] = mse_PV[PD_H]
-        loss_dict["MSE REF nodes - PD"] = mse_REF[PD_H]
+        loss_dict["MSE PQ nodes - PG"] = mse_PQ[PG_OUT]
+        loss_dict["MSE PV nodes - PG"] = mse_PV[PG_OUT]
+        loss_dict["MSE REF nodes - PG"] = mse_REF[PG_OUT]
 
-        loss_dict["MSE PQ nodes - QD"] = mse_PQ[QD_H]
-        loss_dict["MSE PV nodes - QD"] = mse_PV[QD_H]
-        loss_dict["MSE REF nodes - QD"] = mse_REF[QD_H]
+        loss_dict["MSE PQ nodes - QG"] = mse_PQ[QG_OUT]
+        loss_dict["MSE PV nodes - QG"] = mse_PV[QG_OUT]
+        loss_dict["MSE REF nodes - QG"] = mse_REF[QG_OUT]
 
-        loss_dict["MSE PQ nodes - PG"] = mse_PQ[5]
-        loss_dict["MSE PV nodes - PG"] = mse_PV[5]
-        loss_dict["MSE REF nodes - PG"] = mse_REF[5]
+        loss_dict["MSE PQ nodes - VM"] = mse_PQ[VM_OUT]
+        loss_dict["MSE PV nodes - VM"] = mse_PV[VM_OUT]
+        loss_dict["MSE REF nodes - VM"] = mse_REF[VM_OUT]
 
-        loss_dict["MSE PQ nodes - QG"] = mse_PQ[QG_H]
-        loss_dict["MSE PV nodes - QG"] = mse_PV[QG_H]
-        loss_dict["MSE REF nodes - QG"] = mse_REF[QG_H]
-
-        loss_dict["MSE PQ nodes - VM"] = mse_PQ[VM_H]
-        loss_dict["MSE PV nodes - VM"] = mse_PV[VM_H]
-        loss_dict["MSE REF nodes - VM"] = mse_REF[VM_H]
-
-        loss_dict["MSE PQ nodes - VA"] = mse_PQ[VA_H]
-        loss_dict["MSE PV nodes - VA"] = mse_PV[VA_H]
-        loss_dict["MSE REF nodes - VA"] = mse_REF[VA_H]
+        loss_dict["MSE PQ nodes - VA"] = mse_PQ[VA_OUT]
+        loss_dict["MSE PV nodes - VA"] = mse_PV[VA_OUT]
+        loss_dict["MSE REF nodes - VA"] = mse_REF[VA_OUT]
 
         loss_dict["Test loss"] = loss_dict.pop("loss").detach()
         for metric, value in loss_dict.items():
@@ -382,21 +374,21 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
             # RMSE metrics
             rmse_PQ = [
                 metrics.get(f"MSE PQ nodes - {label}", float("nan")) ** 0.5
-                for label in ["PD", "QD", "PG", "QG", "VM", "VA"]
+                for label in ["PG", "QG", "VM", "VA"]
             ]
             rmse_PV = [
                 metrics.get(f"MSE PV nodes - {label}", float("nan")) ** 0.5
-                for label in ["PD", "QD", "PG", "QG", "VM", "VA"]
+                for label in ["PG", "QG", "VM", "VA"]
             ]
             rmse_REF = [
                 metrics.get(f"MSE REF nodes - {label}", float("nan")) ** 0.5
-                for label in ["PD", "QD", "PG", "QG", "VM", "VA"]
+                for label in ["PG", "QG", "VM", "VA"]
             ]
 
             # Residuals and generator metrics
             avg_active_res = metrics.get("Active Power Loss", " ")
             avg_reactive_res = metrics.get("Reactive Power Loss", " ")
-            rmse_gen = metrics.get("MSE PG", " ") ** 0.5
+            rmse_gen = metrics.get("MSE PG", 0) ** 0.5
             optimality_gap = metrics.get("Opt gap", " ")
             branch_thermal_violation_from = metrics.get("Branch termal violation from", " ")
             branch_thermal_violation_to = metrics.get("Branch termal violation to", " ")
@@ -405,12 +397,10 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
             # --- Main RMSE metrics file ---
             data_main = {
                 "Metric": ["RMSE-PQ", "RMSE-PV", "RMSE-REF"],
-                "Pd (MW)": [rmse_PQ[0], rmse_PV[0], rmse_REF[0]],
-                "Qd (MVar)": [rmse_PQ[1], rmse_PV[1], rmse_REF[1]],
-                "Pg (MW)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2]],
-                "Qg (MVar)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3]],
-                "Vm (p.u.)": [rmse_PQ[4], rmse_PV[4], rmse_REF[4]],
-                "Va (radians)": [rmse_PQ[5], rmse_PV[5], rmse_REF[5]],
+                "Pg (MW)": [rmse_PQ[0], rmse_PV[0], rmse_REF[0]],
+                "Qg (MVar)": [rmse_PQ[1], rmse_PV[1], rmse_REF[1]],
+                "Vm (p.u.)": [rmse_PQ[2], rmse_PV[2], rmse_REF[2]],
+                "Va (radians)": [rmse_PQ[3], rmse_PV[3], rmse_REF[3]],
             }
             df_main = pd.DataFrame(data_main)
 
@@ -450,7 +440,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
             "REF": torch.cat([d["mask_REF"] for d in self.test_outputs]),
         }
 
-        feature_labels = ["Pd", "Qd", "Qg", "Vm", "Va", "Pg",]
+        feature_labels = ["Vm", "Va", "Pg", "Qg"]
 
         # Create correlation plots per node type
         for node_type, mask in all_masks.items():
@@ -460,7 +450,7 @@ class HeteroFeatureReconstructionTask(L.LightningModule):
                 continue
 
             num_features = preds.shape[1]
-            fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+            fig, axes = plt.subplots(2, 2, figsize=(15, 8))
             axes = axes.flatten()
 
             for i, (ax, label) in enumerate(zip(axes, feature_labels)):
