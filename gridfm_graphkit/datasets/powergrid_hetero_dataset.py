@@ -179,6 +179,8 @@ class HeteroGridDatasetDisk(Dataset):
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")
         data = torch.load(file_name, weights_only=False)
+
+        # TODO: Could be added in the PF-OPF transform
         data = self.remove_unused_generators(data)
         data = self.remove_unused_branches(data)
         self.data_normalizer.transform(data=data)

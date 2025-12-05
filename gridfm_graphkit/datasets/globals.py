@@ -61,6 +61,16 @@ GS          = 12  # Shunt conductance (p.u.)
 BS          = 13  # Shunt susceptance (p.u.)
 VN_KV       = 14  # Nominal voltage
 
+# =========================
+# === OUTPUT FEATURE INDICES ==
+# =========================
+VM_OUT      = 0
+VA_OUT      = 1
+PG_OUT      = 2
+QG_OUT      = 3
+PG_OUT_GEN      = 0
+
+
 # ================================
 # === GENERATOR FEATURE INDICES ==
 # ================================

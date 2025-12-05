@@ -4,7 +4,7 @@ from torch_geometric.nn import HeteroConv, TransformerConv
 from gridfm_graphkit.io.registries import MODELS_REGISTRY
 from gridfm_graphkit.datasets.globals import *
 from torch_scatter import scatter_add
-from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals, bound_with_sigmoid
+from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals, bound_with_sigmoid, PhysicsDecoderOPF, PhysicsDecoderPF
 
 
 @MODELS_REGISTRY.register("GNS_heterogeneous")
@@ -125,6 +125,7 @@ class GNS_heterogeneous(nn.Module):
         self.branch_flow_layer = ComputeBranchFlow()
         self.node_injection_layer = ComputeNodeInjection()
         self.node_residuals_layer = ComputeNodeResiduals()
+        self.physics_decoder = PhysicsDecoderPF()
 
         # container for monitoring residual norms per layer and type
         self.layer_residuals = {}
@@ -149,9 +150,6 @@ class GNS_heterogeneous(nn.Module):
         bus_edge_index = edge_index_dict[("bus", "connects", "bus")]
         bus_edge_attr = edge_attr_dict[("bus", "connects", "bus")]
 
-        #######################
-        ### NEW ADDITION
-        #######################
         edge_attr_proj_dict = {}
         for key, edge_attr in edge_attr_dict.items():
             if edge_attr is not None:
@@ -163,9 +161,9 @@ class GNS_heterogeneous(nn.Module):
         #agg_gen_on_bus = scatter_add(x_dict["gen"][:,PG_H], gen_to_bus_index, dim=0, dim_size=num_bus)
         #agg_target = torch.cat([x_dict["bus"][:,:5], agg_gen_on_bus], dim=1)
 
-        bus_mask = mask_dict["bus"][:, :(VA_H+1)]
+        bus_mask = mask_dict["bus"][:, VM_H : VA_H + 1]
         gen_mask = mask_dict["gen"][:, :(PG_H+1)]
-        bus_fixed = x_dict["bus"][:, :(VA_H+1)]
+        bus_fixed = x_dict["bus"][:, VM_H : VA_H + 1]
         gen_fixed = x_dict["gen"][:, :(PG_H+1)]
 
         
@@ -184,20 +182,20 @@ class GNS_heterogeneous(nn.Module):
             h_gen = h_gen + out_gen if out_gen.shape == h_gen.shape else out_gen
 
             # Decode bus and generator predictions
-            bus_temp = self.mlp_bus(h_bus)   # [Nb, 5]  -> Pd, Qd, Qg, Vm, Va
+            bus_temp = self.mlp_bus(h_bus)   # [Nb, 2]  -> Vm, Va
             gen_temp = self.mlp_gen(h_gen)   # [Ng, 1]  -> Pg
             bus_temp = torch.where(bus_mask, bus_temp, bus_fixed)
             gen_temp = torch.where(gen_mask, gen_temp, gen_fixed)
 
             if self.task == 'opf_hetero':
-                bus_temp[:, VM_H] = bound_with_sigmoid(bus_temp[:, VM_H], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
-                bus_temp[:, QG_H] = bound_with_sigmoid(bus_temp[:, QG_H], x_dict["bus"][:, MIN_QG_H], x_dict["bus"][:, MAX_QG_H])
-                gen_temp[:, PG_H] = bound_with_sigmoid(gen_temp[:, PG_H], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])            
+                bus_temp[:, VM_OUT] = bound_with_sigmoid(bus_temp[:, VM_OUT], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
+                gen_temp[:, PG_OUT_GEN] = bound_with_sigmoid(gen_temp[:, PG_OUT_GEN], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])            
 
             Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
             P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
             agg_bus = scatter_add(gen_temp.squeeze(), gen_to_bus_index, dim=0, dim_size=num_bus)
-            residual_P, residual_Q = self.node_residuals_layer(P_in, Q_in, bus_temp, x_dict["bus"], agg_bus)
+            output_temp = self.physics_decoder(P_in, Q_in, bus_temp, x_dict["bus"], agg_bus, mask_dict)
+            residual_P, residual_Q = self.node_residuals_layer(P_in, Q_in, output_temp, x_dict["bus"])
 
             bus_residuals = torch.stack([residual_P, residual_Q], dim=-1)
 
@@ -212,14 +210,14 @@ class GNS_heterogeneous(nn.Module):
         final_gen_out = torch.where(gen_mask, final_gen_out, gen_fixed)
         
         if self.task == 'opf_hetero':
-            final_bus_out[:, VM_H] = bound_with_sigmoid(final_bus_out[:, VM_H], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
-            final_bus_out[:, QG_H] = bound_with_sigmoid(final_bus_out[:, QG_H], x_dict["bus"][:, MIN_QG_H], x_dict["bus"][:, MAX_QG_H])
-            final_gen_out[:, PG_H] = bound_with_sigmoid(final_gen_out[:, PG_H], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])
+            final_bus_out[:, VM_OUT] = bound_with_sigmoid(final_bus_out[:, VM_OUT], x_dict["bus"][:, MIN_VM_H], x_dict["bus"][:, MAX_VM_H])
+            final_gen_out[:, PG_OUT_GEN] = bound_with_sigmoid(final_gen_out[:, PG_OUT_GEN], x_dict["gen"][:, MIN_PG], x_dict["gen"][:, MAX_PG])
 
         Pft, Qft = self.branch_flow_layer(final_bus_out, bus_edge_index, bus_edge_attr)
         P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
-        agg_bus = scatter_add(final_gen_out, gen_to_bus_index, dim=0, dim_size=num_bus)
-        residual_P, residual_Q = self.node_residuals_layer(P_in, Q_in, final_bus_out, x_dict["bus"], agg_bus.squeeze())
+        agg_bus = scatter_add(final_gen_out.squeeze(), gen_to_bus_index, dim=0, dim_size=num_bus)
+        output_final = self.physics_decoder(P_in, Q_in, final_bus_out, x_dict["bus"], agg_bus, mask_dict)
+        residual_P, residual_Q = self.node_residuals_layer(P_in, Q_in, output_final, x_dict["bus"])
 
         final_bus_residuals = torch.stack([residual_P, residual_Q], dim=-1)
 
@@ -230,7 +228,7 @@ class GNS_heterogeneous(nn.Module):
         ).mean()
         
         return {
-            "bus": final_bus_out,
+            "bus": output_final,
             "gen": final_gen_out
         }
         

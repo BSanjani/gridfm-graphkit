@@ -110,9 +110,11 @@ class MaskedBusMSE(torch.nn.Module):
         self.reduction = "mean"
 
     def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+        pred = pred_dict["bus"][:, VM_OUT : VA_OUT + 1]
+        target = target_dict["bus"][:, VM_H : VA_H + 1]
         loss = F.mse_loss(
-            pred_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
-            target_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
+            pred[mask_dict["bus"][:, VM_H : VA_H + 1]],
+            target[mask_dict["bus"][:, VM_H : VA_H + 1]],
             reduction=self.reduction
         )
         return {"loss": loss, "Masked bus MSE loss": loss.detach()}

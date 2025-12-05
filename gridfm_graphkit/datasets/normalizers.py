@@ -231,9 +231,8 @@ class HeteroDataMVANormalizer(Normalizer):
     def inverse_output(self, output):
         bus_output = output['bus']
         gen_output = output['gen']
-        bus_output[:, PD_H] *= self.baseMVA
-        bus_output[:, QD_H] *= self.baseMVA
-        bus_output[:, QG_H] *= self.baseMVA
+        bus_output[:, PG_OUT] *= self.baseMVA
+        bus_output[:, QG_OUT] *= self.baseMVA
         gen_output[:, PG_H] *= self.baseMVA
 
     def get_stats(self) -> dict:

@@ -9,8 +9,8 @@ class ComputeBranchFlow(nn.Module):
         from_idx, to_idx = edge_index
 
         # Voltage magnitudes and angles
-        Vf_mag, Vf_ang = bus_data[from_idx, VM_H], bus_data[from_idx, VA_H]
-        Vt_mag, Vt_ang = bus_data[to_idx, VM_H], bus_data[to_idx, VA_H]
+        Vf_mag, Vf_ang = bus_data[from_idx, VM_OUT], bus_data[from_idx, VA_OUT]
+        Vt_mag, Vt_ang = bus_data[to_idx, VM_OUT], bus_data[to_idx, VA_OUT]
 
         # Real & imaginary voltage components
         Vf_r = Vf_mag * torch.cos(Vf_ang)
@@ -51,17 +51,95 @@ class ComputeNodeInjection(nn.Module):
 
         return P_in, Q_in
 
+class PhysicsDecoderOPF(nn.Module):
+    def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):
+        mask_pv  = mask_dict["PV"]
+        mask_ref = mask_dict["REF"]
+
+        mask_pvref = mask_pv | mask_ref
+
+        # Shunt reactive power contribution
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
+
+        # Reactive load
+        Qd = bus_data_orig[:, QD_H]
+
+        # ---- COMPUTE Qg FOR PV & REF ----
+        # Nodal reactive balance:
+        #     Qg = Q_in + Qd - q_shunt
+        Qg_physics = Q_in + Qd - q_shunt
+
+        Qg_new = torch.zeros_like(bus_data_orig[:, QG_H])
+
+        # PV + REF: solve from physics
+        Qg_new[mask_pvref] = Qg_physics[mask_pvref]
+        Pg_out = agg_bus                     # Active generation (Pg)
+        Qg_out = Qg_new                      # Reactive gen (Qg)
+        Vm_out = bus_data_pred[:, VM_OUT]    # Voltage magnitude
+        Va_out = bus_data_pred[:, VA_OUT]    # Voltage angle
+
+        # Concatenate into [num_buses, 4]
+        output = torch.stack([Vm_out, Va_out, Pg_out, Qg_out], dim=1)
+
+        return output
+
+class PhysicsDecoderPF(nn.Module):
+    def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):
+        """
+        PF decoder:
+        - Compute Pg at REF bus
+        - Compute Qg at PV + REF buses
+        - PQ buses: Pg = 0, Qg = 0
+        - Return stacked tensor [Vm, Va, Pg, Qg]
+        """
+
+        # Masks
+        mask_pv  = mask_dict["PV"]
+        mask_ref = mask_dict["REF"]
+        mask_pvref = mask_pv | mask_ref  # Qg computed here
+
+        # --- Shunt contributions ---
+        p_shunt = - bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT]**2
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
+
+        # --- Loads ---
+        Pd = bus_data_orig[:, PD_H]
+        Qd = bus_data_orig[:, QD_H]
+
+        # ======================
+        #   Qg (PV + REF)
+        # ======================
+        Qg_new = torch.zeros_like(bus_data_orig[:, QG_H])  # PQ buses = 0
+        Qg_new[mask_pvref] = Q_in[mask_pvref] + Qd[mask_pvref] - q_shunt[mask_pvref]
+
+        # ======================
+        #   Pg (REF only)
+        # ======================
+        Pg_new = torch.zeros_like(bus_data_orig[:, QG_H])   # PQ buses = 0
+        Pg_new[mask_pv]  = agg_bus[mask_pv]  # PV: keep predicted
+        Pg_new[mask_ref] = P_in[mask_ref] + Pd[mask_ref] - p_shunt[mask_ref]  # REF: balance
+
+        # Voltages
+        Vm_out = bus_data_pred[:, VM_OUT]
+        Va_out = bus_data_pred[:, VA_OUT]
+
+        # Stack into [num_buses, 4] -> [Vm, Va, Pg, Qg]
+        output = torch.stack([Vm_out, Va_out, Pg_new, Qg_new], dim=1)
+
+        return output
+
+
     
 class ComputeNodeResiduals(nn.Module):
     """Compute net residuals per bus combining branch flows, generators, loads, and shunts."""
-    def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus):
+    def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig):
         # Shunt contributions
-        p_shunt = - bus_data_orig[:, GS] * bus_data_pred[:, VM_H]**2
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_H]**2
+        p_shunt = - bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT]**2
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
 
         # Net residuals per bus
-        residual_P = agg_bus - bus_data_pred[:, PD_H] + p_shunt - P_in
-        residual_Q = bus_data_pred[:, QG_H] - bus_data_pred[:, QD_H] + q_shunt - Q_in
+        residual_P = bus_data_pred[:, PG_OUT] - bus_data_orig[:, PD_H] + p_shunt - P_in
+        residual_Q = bus_data_pred[:, QG_OUT] - bus_data_orig[:, QD_H] + q_shunt - Q_in
 
         return residual_P, residual_Q
 
