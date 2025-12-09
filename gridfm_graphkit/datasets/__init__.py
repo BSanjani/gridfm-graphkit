@@ -1,12 +1,15 @@
-from gridfm_graphkit.datasets.transforms import (
+from gridfm_graphkit.datasets.masking import (
     AddPFMask,
     AddIdentityMask,
     AddRandomMask,
     AddOPFMask,
-    AddPFHeteroMask,
 )
 from gridfm_graphkit.datasets.normalizers import (
     HeteroDataMVANormalizer,
+)
+from gridfm_graphkit.datasets.task_transforms import (
+    PowerFlowTransforms,
+    OptimalPowerFlowTransforms,
 )
 
 __all__ = [
@@ -14,6 +17,7 @@ __all__ = [
     "AddIdentityMask",
     "AddRandomMask",
     "AddOPFMask",
-    "AddPFHeteroMask",
     "HeteroDataMVANormalizer",
+    "PowerFlowTransforms",
+    "OptimalPowerFlowTransforms",
 ]

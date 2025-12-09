@@ -8,7 +8,7 @@ import torch
 import random
 import pandas as pd
 
-from gridfm_graphkit.tasks.hetero_feature_reconstruction_task import HeteroFeatureReconstructionTask
+from gridfm_graphkit.io.param_handler import get_task
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import MLFlowLogger
@@ -57,10 +57,7 @@ def main_cli(args):
     np.random.seed(config_args.seed)
 
     litGrid = LitGridHeteroDataModule(config_args, args.data_path)
-    model = HeteroFeatureReconstructionTask(
-        config_args,
-        litGrid.data_normalizers
-    )
+    model = get_task(config_args, litGrid.data_normalizers)
     if args.command != "train":
         print(f"Loading model weights from {args.model_path}")
         state_dict = torch.load(args.model_path, map_location="cpu")

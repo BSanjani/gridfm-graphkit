@@ -5,7 +5,7 @@ from gridfm_graphkit.training.loss import (
     LayeredWeightedPhysicsLoss,
     MaskedOPFHeteroLoss,
     MaskedBusMSE,
-    MaskedGenMSE
+    MaskedGenMSE,
 )
 
 __all__ = [

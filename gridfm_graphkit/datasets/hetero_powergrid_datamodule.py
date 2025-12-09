@@ -6,7 +6,7 @@ import torch.distributed as dist
 from gridfm_graphkit.io.param_handler import (
     NestedNamespace,
     load_normalizer,
-    get_transform,
+    get_task_transforms,
 )
 from gridfm_graphkit.datasets.utils import split_dataset
 from gridfm_graphkit.datasets.powergrid_hetero_dataset import HeteroGridDatasetDisk
@@ -107,7 +107,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
                     root=data_path_network,
                     norm_method=self.args.data.normalization,
                     data_normalizer=data_normalizer,
-                    transform=get_transform(args=self.args),
+                    transform=get_task_transforms(args=self.args),
                 )
 
             # All ranks wait here until processing is done
@@ -118,7 +118,7 @@ class LitGridHeteroDataModule(L.LightningDataModule):
                 root=data_path_network,
                 norm_method=self.args.data.normalization,
                 data_normalizer=data_normalizer,
-                transform=get_transform(args=self.args),
+                transform=get_task_transforms(args=self.args),
             )
             self.datasets.append(dataset)
 

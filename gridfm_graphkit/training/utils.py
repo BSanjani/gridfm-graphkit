@@ -2,9 +2,10 @@ from gridfm_graphkit.datasets.globals import *
 import torch
 from torch_geometric.nn import MessagePassing
 
+
 class PowerFlowResidualLayerHomo(MessagePassing):
     def __init__(self):
-        super().__init__(aggr='add')
+        super().__init__(aggr="add")
 
     def forward(self, x, edge_index, edge_attr, mask=None, target=None):
         if mask is not None and target is not None:
@@ -20,7 +21,6 @@ class PowerFlowResidualLayerHomo(MessagePassing):
 
         V = Vm * torch.exp(1j * Va)
         V = V.unsqueeze(-1)
-
 
         # Compute messages and aggregate
         S_injection = self.propagate(edge_index, x=V, edge_attr=edge_attr).squeeze()

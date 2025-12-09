@@ -96,7 +96,9 @@ class GNS_homogeneous(nn.Module):
         edge_attr_encoded = self.input_proj_edge(edge_attr)
 
         for i, conv in enumerate(self.layers):
-            h_new = self.activation(self.norms[i](conv(h, edge_index, edge_attr_encoded)))
+            h_new = self.activation(
+                self.norms[i](conv(h, edge_index, edge_attr_encoded)),
+            )
 
             h = h + h_new if h_new.shape == h.shape else h_new
 

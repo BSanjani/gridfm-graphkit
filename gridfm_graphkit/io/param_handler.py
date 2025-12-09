@@ -1,12 +1,18 @@
+import torch
 from gridfm_graphkit.training.loss import MixedLoss
 from gridfm_graphkit.io.registries import (
     MASKING_REGISTRY,
     NORMALIZERS_REGISTRY,
     MODELS_REGISTRY,
     LOSS_REGISTRY,
+    TRANSFORM_REGISTRY,
+    TASK_REGISTRY,
+    PHYSICS_DECODER_REGISTRY,
 )
 
 import argparse
+from torch_geometric.transforms import Compose
+from gridfm_graphkit.tasks.base_task import BaseTask
 
 
 class NestedNamespace(argparse.Namespace):
@@ -93,7 +99,7 @@ def get_loss_function(args):
     return MixedLoss(loss_functions=loss_functions, weights=args.training.loss_weights)
 
 
-def load_model(args):
+def load_model(args) -> torch.nn.Module:
     """
     Load the appropriate model
 
@@ -124,3 +130,40 @@ def get_transform(args):
         return MASKING_REGISTRY.create(mask_type, args)
     except KeyError:
         raise ValueError(f"Unknown transformation: {mask_type}")
+
+
+def get_task_transforms(args) -> Compose:
+    """
+    Load the task-specific transforms
+    """
+
+    task_transforms = args.task
+
+    try:
+        return TRANSFORM_REGISTRY.create(task_transforms, args)
+    except KeyError:
+        raise ValueError(f"Unknown task: {task_transforms}")
+
+
+def get_task(args, data_normalizers) -> BaseTask:
+    """
+    Load the task module
+    """
+    task = args.task
+
+    try:
+        return TASK_REGISTRY.create(task, args, data_normalizers)
+    except KeyError:
+        raise ValueError(f"Unknown task: {task}")
+
+
+def get_physics_decoder(args) -> torch.nn.Module:
+    """
+    Load the task module
+    """
+    task = args.task
+
+    try:
+        return PHYSICS_DECODER_REGISTRY.create(task)
+    except KeyError:
+        raise ValueError(f"No physics decoder associate to {task} task")

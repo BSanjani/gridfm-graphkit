@@ -2,9 +2,12 @@ import torch
 from torch import nn
 from gridfm_graphkit.datasets.globals import *
 from torch_scatter import scatter_add
+from gridfm_graphkit.io.registries import PHYSICS_DECODER_REGISTRY
+
 
 class ComputeBranchFlow(nn.Module):
     """Compute sending-end branch flows (Pf, Qf) for all branches."""
+
     def forward(self, bus_data, edge_index, edge_attr):
         from_idx, to_idx = edge_index
 
@@ -33,9 +36,9 @@ class ComputeBranchFlow(nn.Module):
         return Pft, Qft
 
 
-
 class ComputeNodeInjection(nn.Module):
     """Aggregate branch flows into node-level incoming injections."""
+
     def forward(self, Pft, Qft, edge_index, num_bus):
         """
         Args:
@@ -51,15 +54,17 @@ class ComputeNodeInjection(nn.Module):
 
         return P_in, Q_in
 
+
+@PHYSICS_DECODER_REGISTRY.register("OptimalPowerFlow")
 class PhysicsDecoderOPF(nn.Module):
     def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):
-        mask_pv  = mask_dict["PV"]
+        mask_pv = mask_dict["PV"]
         mask_ref = mask_dict["REF"]
 
         mask_pvref = mask_pv | mask_ref
 
         # Shunt reactive power contribution
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
 
         # Reactive load
         Qd = bus_data_orig[:, QD_H]
@@ -73,16 +78,18 @@ class PhysicsDecoderOPF(nn.Module):
 
         # PV + REF: solve from physics
         Qg_new[mask_pvref] = Qg_physics[mask_pvref]
-        Pg_out = agg_bus                     # Active generation (Pg)
-        Qg_out = Qg_new                      # Reactive gen (Qg)
-        Vm_out = bus_data_pred[:, VM_OUT]    # Voltage magnitude
-        Va_out = bus_data_pred[:, VA_OUT]    # Voltage angle
+        Pg_out = agg_bus  # Active generation (Pg)
+        Qg_out = Qg_new  # Reactive gen (Qg)
+        Vm_out = bus_data_pred[:, VM_OUT]  # Voltage magnitude
+        Va_out = bus_data_pred[:, VA_OUT]  # Voltage angle
 
         # Concatenate into [num_buses, 4]
         output = torch.stack([Vm_out, Va_out, Pg_out, Qg_out], dim=1)
 
         return output
 
+
+@PHYSICS_DECODER_REGISTRY.register("PowerFlow")
 class PhysicsDecoderPF(nn.Module):
     def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):
         """
@@ -94,13 +101,13 @@ class PhysicsDecoderPF(nn.Module):
         """
 
         # Masks
-        mask_pv  = mask_dict["PV"]
+        mask_pv = mask_dict["PV"]
         mask_ref = mask_dict["REF"]
         mask_pvref = mask_pv | mask_ref  # Qg computed here
 
         # --- Shunt contributions ---
-        p_shunt = - bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT]**2
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
+        p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
 
         # --- Loads ---
         Pd = bus_data_orig[:, PD_H]
@@ -115,9 +122,11 @@ class PhysicsDecoderPF(nn.Module):
         # ======================
         #   Pg (REF only)
         # ======================
-        Pg_new = torch.zeros_like(bus_data_orig[:, QG_H])   # PQ buses = 0
-        Pg_new[mask_pv]  = agg_bus[mask_pv]  # PV: keep predicted
-        Pg_new[mask_ref] = P_in[mask_ref] + Pd[mask_ref] - p_shunt[mask_ref]  # REF: balance
+        Pg_new = torch.zeros_like(bus_data_orig[:, QG_H])  # PQ buses = 0
+        Pg_new[mask_pv] = agg_bus[mask_pv]  # PV: keep predicted
+        Pg_new[mask_ref] = (
+            P_in[mask_ref] + Pd[mask_ref] - p_shunt[mask_ref]
+        )  # REF: balance
 
         # Voltages
         Vm_out = bus_data_pred[:, VM_OUT]
@@ -129,20 +138,19 @@ class PhysicsDecoderPF(nn.Module):
         return output
 
 
-    
 class ComputeNodeResiduals(nn.Module):
     """Compute net residuals per bus combining branch flows, generators, loads, and shunts."""
+
     def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig):
         # Shunt contributions
-        p_shunt = - bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT]**2
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT]**2
+        p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
+        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
 
         # Net residuals per bus
         residual_P = bus_data_pred[:, PG_OUT] - bus_data_orig[:, PD_H] + p_shunt - P_in
         residual_Q = bus_data_pred[:, QG_OUT] - bus_data_orig[:, QD_H] + q_shunt - Q_in
 
         return residual_P, residual_Q
-
 
 
 def bound_with_sigmoid(pred, low, high):
