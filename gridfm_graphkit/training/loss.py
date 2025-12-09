@@ -38,6 +38,7 @@ class BaseLoss(nn.Module, ABC):
         """
         pass
 
+
 @LOSS_REGISTRY.register("MaskedMSE")
 class MaskedMSELoss(BaseLoss):
     """
@@ -60,6 +61,7 @@ class MaskedMSELoss(BaseLoss):
         loss = F.mse_loss(pred[mask], target[mask], reduction=self.reduction)
         return {"loss": loss, "Masked MSE loss": loss.detach()}
 
+
 @LOSS_REGISTRY.register("MaskedOPFHetero")
 class MaskedOPFHeteroLoss(torch.nn.Module):
     """Masked OPF loss for heterogeneous graphs (bus + generator level)."""
@@ -68,19 +70,27 @@ class MaskedOPFHeteroLoss(torch.nn.Module):
         super().__init__()
         self.reduction = "mean"
 
-    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+    def forward(
+        self,
+        pred_dict,
+        target_dict,
+        edge_index,
+        edge_attr,
+        mask_dict,
+        model=None,
+    ):
         # Bus-level loss
         bus_loss = F.mse_loss(
-            pred_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
-            target_dict["bus"][mask_dict["bus"][:, :(VA_H+1)]],
-            reduction=self.reduction
+            pred_dict["bus"][mask_dict["bus"][:, : (VA_H + 1)]],
+            target_dict["bus"][mask_dict["bus"][:, : (VA_H + 1)]],
+            reduction=self.reduction,
         )
 
         # Generator-level loss
         gen_loss = F.mse_loss(
-            pred_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
-            target_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
-            reduction=self.reduction
+            pred_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
+            target_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
+            reduction=self.reduction,
         )
 
         # Combine losses (simple average)
@@ -88,17 +98,26 @@ class MaskedOPFHeteroLoss(torch.nn.Module):
 
         return {"loss": combined_loss, "Masked MSE loss": combined_loss.detach()}
 
+
 @LOSS_REGISTRY.register("MaskedGenMSE")
 class MaskedGenMSE(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.reduction = "mean"
 
-    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+    def forward(
+        self,
+        pred_dict,
+        target_dict,
+        edge_index,
+        edge_attr,
+        mask_dict,
+        model=None,
+    ):
         loss = F.mse_loss(
-            pred_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
-            target_dict["gen"][mask_dict["gen"][:, :(PG_H+1)]],
-            reduction=self.reduction
+            pred_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
+            target_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
+            reduction=self.reduction,
         )
         return {"loss": loss, "Masked generator MSE loss": loss.detach()}
 
@@ -109,13 +128,21 @@ class MaskedBusMSE(torch.nn.Module):
         super().__init__()
         self.reduction = "mean"
 
-    def forward(self, pred_dict, target_dict, edge_index, edge_attr, mask_dict, model=None):
+    def forward(
+        self,
+        pred_dict,
+        target_dict,
+        edge_index,
+        edge_attr,
+        mask_dict,
+        model=None,
+    ):
         pred = pred_dict["bus"][:, VM_OUT : VA_OUT + 1]
         target = target_dict["bus"][:, VM_H : VA_H + 1]
         loss = F.mse_loss(
             pred[mask_dict["bus"][:, VM_H : VA_H + 1]],
             target[mask_dict["bus"][:, VM_H : VA_H + 1]],
-            reduction=self.reduction
+            reduction=self.reduction,
         )
         return {"loss": loss, "Masked bus MSE loss": loss.detach()}
 
@@ -139,6 +166,7 @@ class MSELoss(BaseLoss):
     ):
         loss = F.mse_loss(pred, target, reduction=self.reduction)
         return {"loss": loss, "MSE loss": loss.detach()}
+
 
 @LOSS_REGISTRY.register("PBE")
 class PBELoss(BaseLoss):
@@ -180,6 +208,7 @@ class PBELoss(BaseLoss):
             )
 
         return result
+
 
 class MixedLoss(BaseLoss):
     """
@@ -249,6 +278,7 @@ class MixedLoss(BaseLoss):
 
         loss_details["loss"] = total_loss
         return loss_details
+
 
 @LOSS_REGISTRY.register("LayeredWeightedPhysics")
 class LayeredWeightedPhysicsLoss(BaseLoss):
