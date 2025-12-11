@@ -1,4 +1,4 @@
-from gridfm_graphkit.datasets.globals import *
+from gridfm_graphkit.datasets.globals import VM, VA, PD, QD, PG, QG, B, G
 import torch
 from torch_geometric.nn import MessagePassing
 

@@ -1,16 +1,24 @@
-from gridfm_graphkit.datasets.globals import *
 import torch
 from torch import Tensor
 from torch_geometric.transforms import BaseTransform
 from typing import Optional
 import torch_geometric.typing
-from torch_geometric.data import Data, HeteroData
+from torch_geometric.data import Data
 from torch_geometric.utils import (
     get_self_loop_attr,
     is_torch_sparse_tensor,
     to_edge_index,
     to_torch_coo_tensor,
     to_torch_csr_tensor,
+)
+from gridfm_graphkit.datasets.globals import (
+    # Edge indices
+    G,
+    B,
+    # Generator feature indices
+    G_ON,
+    # Edge feature indices
+    B_ON,
 )
 
 

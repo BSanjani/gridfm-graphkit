@@ -1,8 +1,26 @@
 import torch
 from torch import nn
-from gridfm_graphkit.datasets.globals import *
 from torch_scatter import scatter_add
 from gridfm_graphkit.io.registries import PHYSICS_DECODER_REGISTRY
+
+from gridfm_graphkit.datasets.globals import (
+    # Bus feature indices
+    PD_H,
+    QD_H,
+    QG_H,
+    GS,
+    BS,
+    # Output feature indices
+    VM_OUT,
+    VA_OUT,
+    PG_OUT,
+    QG_OUT,
+    # Edge feature indices
+    YFF_TT_R,
+    YFF_TT_I,
+    YFT_TF_R,
+    YFT_TF_I,
+)
 
 
 class ComputeBranchFlow(nn.Module):
@@ -54,10 +72,12 @@ class ComputeNodeInjection(nn.Module):
 
         return P_in, Q_in
 
+
 def compute_shunt_power(bus_data_pred, bus_data_orig):
     p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
     q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
     return p_shunt, q_shunt
+
 
 @PHYSICS_DECODER_REGISTRY.register("OptimalPowerFlow")
 class PhysicsDecoderOPF(nn.Module):
@@ -112,7 +132,6 @@ class PhysicsDecoderPF(nn.Module):
         # --- Shunt contributions ---
         p_shunt, q_shunt = compute_shunt_power(bus_data_pred, bus_data_orig)
 
-
         # --- Loads ---
         Pd = bus_data_orig[:, PD_H]
         Qd = bus_data_orig[:, QD_H]
@@ -140,7 +159,8 @@ class PhysicsDecoderPF(nn.Module):
         output = torch.stack([Vm_out, Va_out, Pg_new, Qg_new], dim=1)
 
         return output
-    
+
+
 @PHYSICS_DECODER_REGISTRY.register("StateEstimation")
 class PhysicsDecoderSE(nn.Module):
     def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):

@@ -11,5 +11,5 @@ __all__ = [
     "GNS_heterogeneous",
     "PhysicsDecoderOPF",
     "PhysicsDecoderPF",
-    "PhysicsDecoderSE"
+    "PhysicsDecoderSE",
 ]

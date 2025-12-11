@@ -3,9 +3,23 @@ import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.io.registries import LOSS_REGISTRY
 from torch_scatter import scatter_add
+
+from gridfm_graphkit.datasets.globals import (
+    # Bus feature indices
+    QG_H,
+    VM_H,
+    VA_H,
+    QD_H,
+    # Output feature indices
+    VM_OUT,
+    VA_OUT,
+    QG_OUT,
+    PG_OUT,
+    # Generator feature indices
+    PG_H,
+)
 
 
 class BaseLoss(nn.Module, ABC):
@@ -128,6 +142,7 @@ class MaskedBusMSE(torch.nn.Module):
     def __init__(self, loss_args, args):
         super().__init__()
         self.reduction = "mean"
+        self.args = args
 
     def forward(
         self,
@@ -138,11 +153,21 @@ class MaskedBusMSE(torch.nn.Module):
         mask_dict,
         model=None,
     ):
-        pred = pred_dict["bus"][:, VM_OUT : VA_OUT + 1]
-        target = target_dict["bus"][:, VM_H : VA_H + 1]
+        if self.args.task == "OptimalPowerFlow":
+            pred_cols = [VM_OUT, VA_OUT, QG_OUT]
+            target_cols = [VM_H, VA_H, QG_H]
+        else:
+            pred_cols = [VM_OUT, VA_OUT]
+            target_cols = [VM_H, VA_H]
+
+        pred_bus = pred_dict["bus"][:, pred_cols]  # shape: [N, 3]
+        target_bus = target_dict["bus"][:, target_cols]
+
+        mask = mask_dict["bus"][:, target_cols]
+
         loss = F.mse_loss(
-            pred[mask_dict["bus"][:, VM_H : VA_H + 1]],
-            target[mask_dict["bus"][:, VM_H : VA_H + 1]],
+            pred_bus[mask],
+            target_bus[mask],
             reduction=self.reduction,
         )
         return {"loss": loss, "Masked bus MSE loss": loss.detach()}
@@ -327,9 +352,11 @@ class LossPerDim(BaseLoss):
         self.reduction = "mean"
         self.loss_str = loss_args.loss_str
         self.dim = loss_args.dim
-        if not self.dim in ["VM", "VA", "P_in", "Q_in"]:
-            raise ValueError(f'LossPerDim initialized with not valid loss_str: {loss_str}')
-        
+        if self.dim not in ["VM", "VA", "P_in", "Q_in"]:
+            raise ValueError(
+                f"LossPerDim initialized with not valid loss_str: {self.loss_str}",
+            )
+
     def forward(
         self,
         pred_dict,
@@ -339,29 +366,32 @@ class LossPerDim(BaseLoss):
         mask_dict,
         model=None,
     ):
-        
         if self.dim == "VM":
-            temp_pred = pred_dict['bus'][:, VM_OUT]
-            temp_target = target_dict['bus'][:, VM_H]
+            temp_pred = pred_dict["bus"][:, VM_OUT]
+            temp_target = target_dict["bus"][:, VM_H]
         elif self.dim == "VA":
-            temp_pred = pred_dict['bus'][:, VA_OUT]
-            temp_target = target_dict['bus'][:, VA_H]
+            temp_pred = pred_dict["bus"][:, VA_OUT]
+            temp_target = target_dict["bus"][:, VA_H]
         elif self.dim == "P_in":
-            temp_pred = pred_dict['bus'][:, PG_OUT]
+            temp_pred = pred_dict["bus"][:, PG_OUT]
             num_bus = temp_pred.size(0)
             gen_to_bus_index = edge_index[("gen", "connected_to", "bus")]
             temp_target = scatter_add(
-                target_dict['gen'][:, PG_H],
+                target_dict["gen"][:, PG_H],
                 gen_to_bus_index[1, :],
                 dim=0,
                 dim_size=num_bus,
             )
         elif self.dim == "Q_in":
-            temp_pred = pred_dict['bus'][:, QG_OUT]
-            temp_target = target_dict['bus'][:, QD_H - QG_H]
+            temp_pred = pred_dict["bus"][:, QG_OUT]
+            temp_target = target_dict["bus"][:, QD_H - QG_H]
 
         mse_loss = F.mse_loss(temp_pred, temp_target, reduction=self.reduction)
         mae_loss = F.l1_loss(temp_pred, temp_target, reduction=self.reduction)
 
         loss = mse_loss if self.loss_str == "mse" else mae_loss
-        return {"loss": loss, f"MSE loss {self.dim}": mse_loss.detach(), f"MAE loss {self.dim}": mae_loss.detach()}
+        return {
+            "loss": loss,
+            f"MSE loss {self.dim}": mse_loss.detach(),
+            f"MAE loss {self.dim}": mae_loss.detach(),
+        }

@@ -1,7 +1,4 @@
-callbacks:
-  patience: 100
-  tol: 0
-task: 
+task:
   task_name: OptimalPowerFlow
 data:
   baseMVA: 100
@@ -10,7 +7,7 @@ data:
   networks:
   - case14_ieee
   scenarios:
-  - 30000
+  - 300000
   test_ratio: 0.1
   val_ratio: 0.1
   workers: 32
@@ -50,3 +47,6 @@ training:
   devices: auto
   strategy: auto
 verbose: true
+callbacks:
+  patience: 100
+  tol: 0

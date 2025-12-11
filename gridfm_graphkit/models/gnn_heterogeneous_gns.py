@@ -3,13 +3,26 @@ from torch import nn
 from torch_geometric.nn import HeteroConv, TransformerConv
 from gridfm_graphkit.io.registries import MODELS_REGISTRY
 from gridfm_graphkit.io.param_handler import get_physics_decoder
-from gridfm_graphkit.datasets.globals import *
 from torch_scatter import scatter_add
 from gridfm_graphkit.models.utils import (
     ComputeBranchFlow,
     ComputeNodeInjection,
     ComputeNodeResiduals,
     bound_with_sigmoid,
+)
+from gridfm_graphkit.datasets.globals import (
+    # Bus feature indices
+    VM_H,
+    VA_H,
+    MIN_VM_H,
+    MAX_VM_H,
+    # Output feature indices
+    VM_OUT,
+    PG_OUT_GEN,
+    # Generator feature indices
+    PG_H,
+    MIN_PG,
+    MAX_PG,
 )
 
 
@@ -185,12 +198,21 @@ class GNS_heterogeneous(nn.Module):
             # Decode bus and generator predictions
             bus_temp = self.mlp_bus(h_bus)  # [Nb, 2]  -> Vm, Va
             gen_temp = self.mlp_gen(h_gen)  # [Ng, 1]  -> Pg
-            
+
             if self.task == "StateEstimation":
                 if i == self.num_layers - 1:
                     # TODO: move this to a physics decoder
-                    Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
-                    P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
+                    Pft, Qft = self.branch_flow_layer(
+                        bus_temp,
+                        bus_edge_index,
+                        bus_edge_attr,
+                    )
+                    P_in, Q_in = self.node_injection_layer(
+                        Pft,
+                        Qft,
+                        bus_edge_index,
+                        num_bus,
+                    )
                     output_temp = self.physics_decoder(
                         P_in,
                         Q_in,
@@ -216,8 +238,17 @@ class GNS_heterogeneous(nn.Module):
                         x_dict["gen"][:, MAX_PG],
                     )
 
-                Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
-                P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
+                Pft, Qft = self.branch_flow_layer(
+                    bus_temp,
+                    bus_edge_index,
+                    bus_edge_attr,
+                )
+                P_in, Q_in = self.node_injection_layer(
+                    Pft,
+                    Qft,
+                    bus_edge_index,
+                    num_bus,
+                )
                 agg_bus = scatter_add(
                     gen_temp.squeeze(),
                     gen_to_bus_index,
@@ -242,7 +273,10 @@ class GNS_heterogeneous(nn.Module):
                 bus_residuals = torch.stack([residual_P, residual_Q], dim=-1)
 
                 # Save and project residuals to latent space
-                self.layer_residuals[i] = torch.linalg.norm(bus_residuals, dim=-1).mean()
+                self.layer_residuals[i] = torch.linalg.norm(
+                    bus_residuals,
+                    dim=-1,
+                ).mean()
                 h_bus = h_bus + self.physics_mlp(bus_residuals)
-            
+
         return {"bus": output_temp, "gen": gen_temp}

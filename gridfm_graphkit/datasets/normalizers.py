@@ -1,11 +1,40 @@
-from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.io.registries import NORMALIZERS_REGISTRY
 import torch
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Tuple
+from typing import Optional
 import pandas as pd
 import numpy as np
 from torch_geometric.data import HeteroData
+from gridfm_graphkit.datasets.globals import (
+    # Bus feature indices
+    PD_H,
+    QD_H,
+    QG_H,
+    VA_H,
+    MIN_QG_H,
+    MAX_QG_H,
+    GS,
+    BS,
+    VN_KV,
+    # Output feature indices
+    PG_OUT,
+    QG_OUT,
+    # Generator feature indices
+    PG_H,
+    MIN_PG,
+    MAX_PG,
+    C0_H,
+    C1_H,
+    C2_H,
+    # Edge feature indices
+    P_E,
+    Q_E,
+    YFF_TT_R,
+    YFT_TF_I,
+    ANG_MIN,
+    ANG_MAX,
+    RATE_A,
+)
 
 
 class Normalizer(ABC):
@@ -106,7 +135,7 @@ class HeteroDataMVANormalizer(Normalizer):
             raise ValueError(
                 "bus_data and gen_data must be provided for node-level normalization.",
             )
-        
+
         if self.baseMVA is None:
             pd_values = bus_data["Pd"]
             qd_values = bus_data["Qd"]
@@ -196,12 +225,14 @@ class HeteroDataMVANormalizer(Normalizer):
     def inverse_transform(self, data: HeteroData):
         if self.baseMVA is None or self.baseMVA == 0:
             raise ValueError("BaseMVA not properly set")
-        
+
         if not data.is_normalized.all():
             raise ValueError("Attempting to denormalize data which is not normalized")
-        
+
         if (data.baseMVA != self.baseMVA).any():
-            raise ValueError(f"Normalizer baseMVA was {self.baseMVA} but Data object baseMVA is {data.baseMVA}")
+            raise ValueError(
+                f"Normalizer baseMVA was {self.baseMVA} but Data object baseMVA is {data.baseMVA}",
+            )
 
         # -------- BUS INPUT INVERSE NORMALIZATION --------
         data.x_dict["bus"][:, PD_H] *= self.baseMVA

@@ -2,30 +2,13 @@ callbacks:
   patience: 100
   tol: 0
 task:
-  task_name: StateEstimation
-  noise_type: Gaussian
-  measurements:
-    power_inj:
-      mask_ratio: 0.2
-      outlier_ratio: 0.1
-      std: 0.02
-    power_flow:
-      mask_ratio: 0.2
-      outlier_ratio: 0.1
-      std: 0.02
-    vm:
-      mask_ratio: 0.2
-      outlier_ratio: 0.1
-      std: 0.02
-  relative_measurement: true
-  grid_path:
+  task_name: PowerFlow
 data:
   baseMVA: 100
   mask_value: 0.0
   normalization: HeteroDataMVANormalizer
-  normalizationMVA: 120
   networks:
-  - case14_ieee
+  - case30_ieee
   scenarios:
   - 100000
   test_ratio: 0.1
@@ -51,26 +34,16 @@ seed: 0
 training:
   batch_size: 32
   epochs: 200
-  losses:
-  - LossPerDim
-  - LossPerDim
-  - LossPerDim
-  - LossPerDim
   loss_weights:
   - 0.1
-  - 0.1
-  - 0.35
-  - 0.35
+  - 0.9
+  losses:
+  - LayeredWeightedPhysics
+  - MaskedBusMSE
   loss_args:
-  - dim: VM
-    loss_str: MAE
-  - dim: VA
-    loss_str: MAE
-  - dim: P_in
-    loss_str: MAE
-  - dim: Q_in
-    loss_str: MAE
+  - base_weight: 0.5
+  - {}
   accelerator: auto
   devices: auto
   strategy: auto
-verbose: false
+verbose: true

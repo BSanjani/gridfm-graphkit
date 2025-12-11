@@ -7,6 +7,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+
 class BaseTask(L.LightningModule, ABC):
     """
     Abstract base LightningModule for feature reconstruction tasks.
@@ -60,7 +61,7 @@ class BaseTask(L.LightningModule, ABC):
             for i, normalizer in enumerate(self.data_normalizers):
                 log_file.write(
                     f"Data Normalizer {self.args.data.networks[i]} stats:\n{normalizer.get_stats()}\n\n",
-                )    
+                )
 
     def configure_optimizers(self):
         self.optimizer = torch.optim.AdamW(

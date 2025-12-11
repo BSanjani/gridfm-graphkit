@@ -1,8 +1,41 @@
-from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.io.registries import MASKING_REGISTRY
 
 import torch
 from torch_geometric.transforms import BaseTransform
+from gridfm_graphkit.datasets.globals import (
+    # Node indices
+    PG,
+    QG,
+    VM,
+    VA,
+    PQ,
+    PV,
+    REF,
+    # Bus feature indices
+    PD_H,
+    QD_H,
+    QG_H,
+    VM_H,
+    VA_H,
+    PQ_H,
+    PV_H,
+    REF_H,
+    MIN_VM_H,
+    MAX_VM_H,
+    MIN_QG_H,
+    MAX_QG_H,
+    VN_KV,
+    # Generator feature indices
+    PG_H,
+    MIN_PG,
+    MAX_PG,
+    C0_H,
+    C1_H,
+    C2_H,
+    # Edge feature indices
+    P_E,
+    Q_E,
+)
 from torch_geometric.utils import degree
 from torch_geometric.nn import MessagePassing
 
@@ -55,6 +88,7 @@ class AddRandomMask(BaseTransform):
 
         return data
 
+
 class AddPFHeteroMask(BaseTransform):
     """Creates masks for a heterogeneous power flow graph."""
 
@@ -86,7 +120,6 @@ class AddPFHeteroMask(BaseTransform):
         mask_gen[:, C1_H] = True
         mask_gen[:, C2_H] = True
 
-
         # --- PQ buses ---
         mask_bus[mask_PQ, VM_H] = True
         mask_bus[mask_PQ, VA_H] = True
@@ -104,9 +137,12 @@ class AddPFHeteroMask(BaseTransform):
         ref_gens = gen_indices[mask_REF[bus_indices]]
         mask_gen[ref_gens, PG_H] = True
 
-        mask_branch = torch.zeros_like(data.edge_attr_dict[("bus", "connects", "bus")], dtype=torch.bool)
+        mask_branch = torch.zeros_like(
+            data.edge_attr_dict[("bus", "connects", "bus")],
+            dtype=torch.bool,
+        )
         mask_branch[:, P_E] = True
-        mask_branch[:, Q_E] = True 
+        mask_branch[:, Q_E] = True
 
         data.mask_dict = {
             "bus": mask_bus,
@@ -118,6 +154,7 @@ class AddPFHeteroMask(BaseTransform):
         }
 
         return data
+
 
 class AddOPFHeteroMask(BaseTransform):
     """Creates masks for a heterogeneous power flow graph."""
@@ -138,7 +175,6 @@ class AddOPFHeteroMask(BaseTransform):
         mask_bus = torch.zeros_like(bus_x, dtype=torch.bool)
         mask_gen = torch.zeros_like(gen_x, dtype=torch.bool)
 
-
         # --- PQ buses ---
         mask_bus[mask_PQ, VM_H] = True
         mask_bus[mask_PQ, VA_H] = True
@@ -154,9 +190,12 @@ class AddOPFHeteroMask(BaseTransform):
 
         mask_gen[:, PG_H] = True
 
-        mask_branch = torch.zeros_like(data.edge_attr_dict[("bus", "connects", "bus")], dtype=torch.bool)
-        mask_branch[:, P_E] = True  
-        mask_branch[:, Q_E] = True 
+        mask_branch = torch.zeros_like(
+            data.edge_attr_dict[("bus", "connects", "bus")],
+            dtype=torch.bool,
+        )
+        mask_branch[:, P_E] = True
+        mask_branch[:, Q_E] = True
 
         data.mask_dict = {
             "bus": mask_bus,
@@ -168,16 +207,20 @@ class AddOPFHeteroMask(BaseTransform):
         }
 
         return data
-    
+
 
 class BusToGenBroadcaster(MessagePassing):
     def __init__(self, aggr="add"):
         super().__init__(aggr=aggr)
 
     def forward(self, x_bus, edge_index_bus2gen, num_gen):
-        #TODO propagate the standard deviation by dividing by sqrt of number of gens per bus
-        deg = degree(edge_index_bus2gen[0], num_nodes = x_bus.shape[0]).unsqueeze(-1)
-        return self.propagate(edge_index_bus2gen, x=x_bus / torch.sqrt(deg), size=(x_bus.size(0), num_gen))
+        # TODO propagate the standard deviation by dividing by sqrt of number of gens per bus
+        deg = degree(edge_index_bus2gen[0], num_nodes=x_bus.shape[0]).unsqueeze(-1)
+        return self.propagate(
+            edge_index_bus2gen,
+            x=x_bus / torch.sqrt(deg),
+            size=(x_bus.size(0), num_gen),
+        )
 
     def message(self, x_j):
         return x_j
@@ -187,80 +230,131 @@ class SimulateMeasurements(BaseTransform):
     def __init__(self, args):
         super().__init__()
         self.measurements = args.task.measurements
-        self.relative_measurement = getattr(args.task, 'relative_measurement', True)
-        self.measurement_distribution = getattr(args.task, 'noise_type', 'Gaussian')
+        self.relative_measurement = getattr(args.task, "relative_measurement", True)
+        self.measurement_distribution = getattr(args.task, "noise_type", "Gaussian")
         self.bus2gen_broadcaster = BusToGenBroadcaster()
-            
+
     def place_measurement_std_and_outliers(self, std, outliers, features, measurement):
         measurement_mask = torch.rand(std.shape[0]) < measurement.mask_ratio
         outliers_mask = torch.rand(std.shape[0]) < measurement.outlier_ratio
         outliers_mask = torch.logical_and(outliers_mask, ~measurement_mask)
         for feature in features:
-            std[~measurement_mask, feature] = measurement.std 
+            std[~measurement_mask, feature] = measurement.std
             outliers[outliers_mask, feature] = True
         return std, outliers
 
     def add_noise(self, data, mask, std):
         if self.measurement_distribution == "Gaussian":
-            return torch.where(mask, data, data + std * torch.randn(std.shape))         
+            return torch.where(mask, data, data + std * torch.randn(std.shape))
 
         elif self.measurement_distribution == "Laplace":
             b = std / torch.sqrt(torch.tensor(2))
             dist = torch.distributions.laplace.Laplace(0, 1)
             return torch.where(mask, data, data + b * dist.sample(b.shape))
-    
+
         elif self.measurement_distribution == "Uniform":
             dist = torch.distributions.uniform.Uniform(-1, 1)
-            return torch.where(mask, data, data + torch.sqrt(torch.tensor(3)) * std * dist.sample(std.shape))
+            return torch.where(
+                mask,
+                data,
+                data + torch.sqrt(torch.tensor(3)) * std * dist.sample(std.shape),
+            )
 
     def forward(self, data):
-        std_bus = torch.full_like(data['bus'].y, float('inf'), dtype=torch.float)
-        outliers_bus = torch.full_like(data['bus'].y, False, dtype=torch.bool)
+        std_bus = torch.full_like(data["bus"].y, float("inf"), dtype=torch.float)
+        outliers_bus = torch.full_like(data["bus"].y, False, dtype=torch.bool)
 
-        std_bus, outliers_bus = self.place_measurement_std_and_outliers(std_bus, outliers_bus, [VM_H], self.measurements.vm)
-        std_bus, outliers_bus = self.place_measurement_std_and_outliers(std_bus, outliers_bus, [PD_H, QD_H, QG_H], self.measurements.power_inj)
+        std_bus, outliers_bus = self.place_measurement_std_and_outliers(
+            std_bus,
+            outliers_bus,
+            [VM_H],
+            self.measurements.vm,
+        )
+        std_bus, outliers_bus = self.place_measurement_std_and_outliers(
+            std_bus,
+            outliers_bus,
+            [PD_H, QD_H, QG_H],
+            self.measurements.power_inj,
+        )
         std_gen = self.bus2gen_broadcaster(
             std_bus[:, [PD_H]],
-            data[('bus', 'connected_to', 'gen')]['edge_index'],
-            data['gen'].x.shape[0]
-        )       
+            data[("bus", "connected_to", "gen")]["edge_index"],
+            data["gen"].x.shape[0],
+        )
 
-        std_branch = torch.full_like(data[('bus', 'connects', 'bus')].edge_attr[:, :2], float('inf'), dtype=torch.float)
-        outliers_branch = torch.full_like(data[('bus', 'connects', 'bus')].edge_attr[:, :2], False, dtype=torch.bool)
+        std_branch = torch.full_like(
+            data[("bus", "connects", "bus")].edge_attr[:, :2],
+            float("inf"),
+            dtype=torch.float,
+        )
+        outliers_branch = torch.full_like(
+            data[("bus", "connects", "bus")].edge_attr[:, :2],
+            False,
+            dtype=torch.bool,
+        )
 
-        std_branch, outliers_branch = self.place_measurement_std_and_outliers(std_branch, outliers_branch, [P_E, Q_E], self.measurements.power_flow)
-        mask_bus, mask_branch, mask_gen = torch.isinf(std_bus), torch.isinf(std_branch), torch.isinf(std_gen)
+        std_branch, outliers_branch = self.place_measurement_std_and_outliers(
+            std_branch,
+            outliers_branch,
+            [P_E, Q_E],
+            self.measurements.power_flow,
+        )
+        mask_bus, mask_branch, mask_gen = (
+            torch.isinf(std_bus),
+            torch.isinf(std_branch),
+            torch.isinf(std_gen),
+        )
 
         if self.relative_measurement:
-            std_bus = torch.where(mask_bus, std_bus, std_bus * torch.abs(data['bus'].y))
-            std_branch = torch.where(mask_branch, std_branch, std_branch * torch.abs(data[('bus', 'connects', 'bus')].edge_attr[:,:2]))
+            std_bus = torch.where(mask_bus, std_bus, std_bus * torch.abs(data["bus"].y))
+            std_branch = torch.where(
+                mask_branch,
+                std_branch,
+                std_branch
+                * torch.abs(data[("bus", "connects", "bus")].edge_attr[:, :2]),
+            )
         else:
             std_bus = torch.where(mask_bus, std_bus, std_bus * data.baseMVA)
             std_branch = torch.where(mask_branch, std_branch, std_branch * data.baseMVA)
 
-        data['bus'].x[:, :data['bus'].y.size(1)] = self.add_noise(data['bus'].x[:, :data['bus'].y.size(1)], mask_bus, std_bus)
-        data['gen'].x[:, :data['gen'].y.size(1)] = self.add_noise(data['gen'].x[:, :data['gen'].y.size(1)], mask_gen, std_gen)
-        data[('bus', 'connects', 'bus')].edge_attr[:,:2] = self.add_noise(data[('bus', 'connects', 'bus')].edge_attr[:,:2], mask_branch, std_branch)
+        data["bus"].x[:, : data["bus"].y.size(1)] = self.add_noise(
+            data["bus"].x[:, : data["bus"].y.size(1)],
+            mask_bus,
+            std_bus,
+        )
+        data["gen"].x[:, : data["gen"].y.size(1)] = self.add_noise(
+            data["gen"].x[:, : data["gen"].y.size(1)],
+            mask_gen,
+            std_gen,
+        )
+        data[("bus", "connects", "bus")].edge_attr[:, :2] = self.add_noise(
+            data[("bus", "connects", "bus")].edge_attr[:, :2],
+            mask_branch,
+            std_branch,
+        )
 
         # Save all masks and stds
-        extra_dims_bus = data['bus'].x.size(1) - data['bus'].y.size(1)
-        extra_dims_gen = data['gen'].x.size(1) - data['gen'].y.size(1) 
-        extra_dims_branch = data[('bus', 'connects', 'bus')]['edge_attr'].shape[1] - mask_branch.shape[1]
+        extra_dims_bus = data["bus"].x.size(1) - data["bus"].y.size(1)
+        extra_dims_gen = data["gen"].x.size(1) - data["gen"].y.size(1)
+        extra_dims_branch = (
+            data[("bus", "connects", "bus")]["edge_attr"].shape[1]
+            - mask_branch.shape[1]
+        )
 
         data.mask_dict = {
-            'bus': torch.nn.functional.pad(mask_bus, (0, extra_dims_bus)),
-            'std_bus': std_bus,
-            'outliers_bus': outliers_bus,
-            'gen': torch.nn.functional.pad(mask_gen, (0, extra_dims_gen)),
-            'std_gen': std_gen,
-            'branch': torch.nn.functional.pad(mask_branch, (0, extra_dims_branch)),
-            'std_branch': std_branch,
-            'outliers_branch': outliers_branch
+            "bus": torch.nn.functional.pad(mask_bus, (0, extra_dims_bus)),
+            "std_bus": std_bus,
+            "outliers_bus": outliers_bus,
+            "gen": torch.nn.functional.pad(mask_gen, (0, extra_dims_gen)),
+            "std_gen": std_gen,
+            "branch": torch.nn.functional.pad(mask_branch, (0, extra_dims_branch)),
+            "std_branch": std_branch,
+            "outliers_branch": outliers_branch,
         }
 
         return data
 
-        
+
 @MASKING_REGISTRY.register("pf")
 class AddPFMask(BaseTransform):
     """Creates a mask according to the power flow problem and assigns it as a `mask` attribute."""

@@ -1,13 +1,38 @@
-import lightning
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
-from gridfm_graphkit.datasets.globals import *
+from gridfm_graphkit.datasets.globals import (
+    # Bus feature indices
+    QG_H,
+    VM_H,
+    VA_H,
+    MIN_QG_H,
+    MAX_QG_H,
+    # Output feature indices
+    VM_OUT,
+    VA_OUT,
+    PG_OUT,
+    QG_OUT,
+    # Generator feature indices
+    PG_H,
+    C0_H,
+    C1_H,
+    C2_H,
+    # Edge feature indices
+    ANG_MIN,
+    ANG_MAX,
+    RATE_A,
+)
+
 from gridfm_graphkit.tasks.base_task import BaseTask
 from gridfm_graphkit.io.registries import TASK_REGISTRY
 from pytorch_lightning.utilities import rank_zero_only
 import torch
 import torch.nn.functional as F
 from torch_scatter import scatter_add, scatter_mean, scatter_max
-from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, ComputeNodeResiduals
+from gridfm_graphkit.models.utils import (
+    ComputeBranchFlow,
+    ComputeNodeInjection,
+    ComputeNodeResiduals,
+)
 import matplotlib.pyplot as plt
 import seaborn as sns
 from lightning.pytorch.loggers import MLFlowLogger
@@ -135,20 +160,22 @@ def plot_residuals_histograms(outputs, dataset_name, plot_dir):
         ("mean_residual_P", "Mean P Residual"),
         ("mean_residual_Q", "Mean Q Residual"),
         ("max_residual_P", "Max P Residual"),
-        ("max_residual_Q", "Max Q Residual")
+        ("max_residual_Q", "Max Q Residual"),
     ]
 
     for stat_key, title in stats:
         # Gather all data first to compute common bin edges
-        all_data = torch.cat([
-            torch.cat([d[f"{stat_key}_{bus_type}"] for d in outputs])
-            for bus_type in bus_types
-        ]).numpy()
+        all_data = torch.cat(
+            [
+                torch.cat([d[f"{stat_key}_{bus_type}"] for d in outputs])
+                for bus_type in bus_types
+            ],
+        ).numpy()
 
         # Define bins across the entire data range
         bins = np.linspace(all_data.min(), all_data.max(), 61)  # 30 bins of equal width
 
-        plt.figure(figsize=(10,6))
+        plt.figure(figsize=(10, 6))
         for bus_type, color in zip(bus_types, colors):
             data = torch.cat([d[f"{stat_key}_{bus_type}"] for d in outputs]).numpy()
             plt.hist(data, bins=bins, alpha=0.6, label=bus_type, color=color)
@@ -157,12 +184,13 @@ def plot_residuals_histograms(outputs, dataset_name, plot_dir):
         plt.xlabel("Residual (MW or MVar)")
         plt.ylabel("Frequency")
         plt.legend(title="Bus Type")
-        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.grid(True, linestyle="--", alpha=0.5)
         plt.tight_layout()
 
         save_path = os.path.join(plot_dir, f"{stat_key}.png")
         plt.savefig(save_path, dpi=300)
         plt.close()
+
 
 def plot_correlation_by_node_type(
     preds: torch.Tensor,
@@ -176,7 +204,7 @@ def plot_correlation_by_node_type(
     """
     Create correlation scatter plots per node type (PQ, PV, REF),
     and highlight Qg violations in red if a violation mask is provided.
-    
+
     Args:
         preds (torch.Tensor): Predictions [N, F]
         targets (torch.Tensor): Targets [N, F]
@@ -211,10 +239,7 @@ def plot_correlation_by_node_type(
 
             # --- normal scatter for all except Qg ---
             if label != "Qg" or qg_violation_mask_local is None:
-                sns.scatterplot(
-                    x=x, y=y,
-                    s=6, alpha=0.4, ax=ax, edgecolor=None
-                )
+                sns.scatterplot(x=x, y=y, s=6, alpha=0.4, ax=ax, edgecolor=None)
             else:
                 # --- For Qg: split normal vs violating points ---
                 normal_mask = ~qg_violation_mask_local
@@ -228,7 +253,7 @@ def plot_correlation_by_node_type(
                     alpha=0.4,
                     ax=ax,
                     edgecolor=None,
-                    label="Valid Qg"
+                    label="Valid Qg",
                 )
 
                 # Violating (RED)
@@ -240,7 +265,7 @@ def plot_correlation_by_node_type(
                     ax=ax,
                     edgecolor="red",
                     color="red",
-                    label="Qg violation"
+                    label="Qg violation",
                 )
 
                 ax.legend()
@@ -248,8 +273,13 @@ def plot_correlation_by_node_type(
             # --- reference y=x line ---
             min_val = min(x.min(), y.min())
             max_val = max(x.max(), y.max())
-            ax.plot([min_val, max_val], [min_val, max_val],
-                    'k--', linewidth=1.0, alpha=0.7)
+            ax.plot(
+                [min_val, max_val],
+                [min_val, max_val],
+                "k--",
+                linewidth=1.0,
+                alpha=0.7,
+            )
 
             # --- R² correlation ---
             corr = np.corrcoef(x, y)[0, 1]
@@ -258,7 +288,9 @@ def plot_correlation_by_node_type(
             else:
                 num_violations = qg_violation_mask_local.sum().item()
                 total_points = qg_violation_mask_local.shape[0]
-                ax.set_title(f"{node_type} – {label}\nR² = {corr**2:.3f} - {num_violations} violations out of {total_points} predictions")
+                ax.set_title(
+                    f"{node_type} – {label}\nR² = {corr**2:.3f} - {num_violations} violations out of {total_points} predictions",
+                )
             ax.set_xlabel("Target")
             ax.set_ylabel("Prediction")
 
@@ -268,13 +300,13 @@ def plot_correlation_by_node_type(
         plt.close(fig)
 
 
-
 @TASK_REGISTRY.register("OptimalPowerFlow")
 class OptimalPowerFlowTask(ReconstructionTask):
     """
     Concrete Optimal Power Flow task.
     Extends ReconstructionTask and adds OPF-specific metrics.
     """
+
     def __init__(self, args, data_normalizers):
         super().__init__(args, data_normalizers)
 
@@ -292,7 +324,7 @@ class OptimalPowerFlowTask(ReconstructionTask):
         num_bus = batch.x_dict["bus"].size(0)
         bus_edge_index = batch.edge_index_dict[("bus", "connects", "bus")]
         bus_edge_attr = batch.edge_attr_dict[("bus", "connects", "bus")]
-        _ , gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
+        _, gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
 
         mse_PG = F.mse_loss(
             output["gen"],
@@ -303,24 +335,36 @@ class OptimalPowerFlowTask(ReconstructionTask):
         c1 = batch.x_dict["gen"][:, C1_H]
         c2 = batch.x_dict["gen"][:, C2_H]
         target_pg = batch.y_dict["gen"].squeeze()
-        pred_pg = output["gen"].squeeze() 
+        pred_pg = output["gen"].squeeze()
         gen_cost_gt = c0 + c1 * target_pg + c2 * target_pg**2
         gen_cost_pred = c0 + c1 * pred_pg + c2 * pred_pg**2
 
-
-        gen_batch = batch.batch_dict["gen"]   # shape: [N_gen_total]
+        gen_batch = batch.batch_dict["gen"]  # shape: [N_gen_total]
 
         cost_gt = scatter_add(gen_cost_gt, gen_batch, dim=0)
         cost_pred = scatter_add(gen_cost_pred, gen_batch, dim=0)
 
         optimality_gap = torch.mean(torch.abs((cost_pred - cost_gt) / cost_gt * 100))
-        
-        agg_gen_on_bus = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-        #output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
-        target = torch.stack([batch.y_dict['bus'][:, VM_H], batch.y_dict['bus'][:, VA_H], agg_gen_on_bus.squeeze(), batch.y_dict['bus'][:, QG_H]], dim=1)
-        
+
+        agg_gen_on_bus = scatter_add(
+            batch.y_dict["gen"],
+            gen_to_bus_index,
+            dim=0,
+            dim_size=num_bus,
+        )
+        # output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+        target = torch.stack(
+            [
+                batch.y_dict["bus"][:, VM_H],
+                batch.y_dict["bus"][:, VA_H],
+                agg_gen_on_bus.squeeze(),
+                batch.y_dict["bus"][:, QG_H],
+            ],
+            dim=1,
+        )
+
         # UN-COMMENT THIS TO CHECK PBE ON GROUND TRUTH
-        #output["bus"] = target 
+        # output["bus"] = target
 
         Pft, Qft = branch_flow_layer(output["bus"], bus_edge_index, bus_edge_attr)
         # Compute branch termal limits violations
@@ -333,7 +377,6 @@ class OptimalPowerFlowTask(ReconstructionTask):
         forward_excess = branch_thermal_excess[:half_edges]
         reverse_excess = branch_thermal_excess[half_edges:]
 
-
         mean_thermal_violation_forward = torch.mean(forward_excess)
         mean_thermal_violation_reverse = torch.mean(reverse_excess)
 
@@ -345,14 +388,20 @@ class OptimalPowerFlowTask(ReconstructionTask):
         from_bus = bus_edge_index[0]
         to_bus = bus_edge_index[1]
         angle_diff = torch.abs(bus_angles[from_bus] - bus_angles[to_bus])
- 
-        angle_excess_low = F.relu(angle_min - angle_diff)   # violation if too small
-        angle_excess_high = F.relu(angle_diff - angle_max)  # violation if too large
-        branch_angle_violation_mean = torch.mean(angle_excess_low + angle_excess_high) * 180.0 / torch.pi
 
+        angle_excess_low = F.relu(angle_min - angle_diff)  # violation if too small
+        angle_excess_high = F.relu(angle_diff - angle_max)  # violation if too large
+        branch_angle_violation_mean = (
+            torch.mean(angle_excess_low + angle_excess_high) * 180.0 / torch.pi
+        )
 
         P_in, Q_in = node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
-        residual_P, residual_Q = node_residuals_layer(P_in, Q_in, output["bus"], batch.x_dict["bus"])
+        residual_P, residual_Q = node_residuals_layer(
+            P_in,
+            Q_in,
+            output["bus"],
+            batch.x_dict["bus"],
+        )
 
         # --- Qg limit violation mask ---
         Qg_pred = output["bus"][:, QG_OUT]
@@ -365,41 +414,74 @@ class OptimalPowerFlowTask(ReconstructionTask):
 
         mask_PQ = batch.mask_dict["PQ"]  # PQ buses
         mask_PV = batch.mask_dict["PV"]  # PV buses
-        mask_REF = batch.mask_dict["REF"] # Reference buses
+        mask_REF = batch.mask_dict["REF"]  # Reference buses
+
+        Qg_over = F.relu(Qg_pred - Qg_max)  # amount above max limit
+        Qg_under = F.relu(Qg_min - Qg_pred)  # amount below min limit
+        Qg_violation_amount = Qg_over + Qg_under
+
+        mean_Qg_violation_PV = Qg_violation_amount[mask_PV].mean()
+        mean_Qg_violation_REF = Qg_violation_amount[mask_REF].mean()
 
         if self.args.verbose:
-            mean_res_P_PQ, max_res_P_PQ = residual_stats_by_type(residual_P, mask_PQ, bus_batch)
-            mean_res_Q_PQ, max_res_Q_PQ = residual_stats_by_type(residual_Q, mask_PQ, bus_batch)
+            mean_res_P_PQ, max_res_P_PQ = residual_stats_by_type(
+                residual_P,
+                mask_PQ,
+                bus_batch,
+            )
+            mean_res_Q_PQ, max_res_Q_PQ = residual_stats_by_type(
+                residual_Q,
+                mask_PQ,
+                bus_batch,
+            )
 
-            mean_res_P_PV, max_res_P_PV = residual_stats_by_type(residual_P, mask_PV, bus_batch)
-            mean_res_Q_PV, max_res_Q_PV = residual_stats_by_type(residual_Q, mask_PV, bus_batch)
+            mean_res_P_PV, max_res_P_PV = residual_stats_by_type(
+                residual_P,
+                mask_PV,
+                bus_batch,
+            )
+            mean_res_Q_PV, max_res_Q_PV = residual_stats_by_type(
+                residual_Q,
+                mask_PV,
+                bus_batch,
+            )
 
-            mean_res_P_REF, max_res_P_REF = residual_stats_by_type(residual_P, mask_REF, bus_batch)
-            mean_res_Q_REF, max_res_Q_REF = residual_stats_by_type(residual_Q, mask_REF, bus_batch)
-            self.test_outputs[dataloader_idx].append({
-                "dataset": dataset_name,
-                "pred": output["bus"].detach().cpu(),
-                "target": target.detach().cpu(),
-                "mask_PQ": mask_PQ.cpu(),
-                "mask_PV": mask_PV.cpu(),
-                "mask_REF": mask_REF.cpu(),
-                "cost_predicted": cost_pred.detach().cpu(),
-                "cost_ground_truth": cost_gt.detach().cpu(),
-                "mean_residual_P_PQ": mean_res_P_PQ.detach().cpu(),
-                "max_residual_P_PQ": max_res_P_PQ.detach().cpu(),
-                "mean_residual_Q_PQ": mean_res_Q_PQ.detach().cpu(),
-                "max_residual_Q_PQ": max_res_Q_PQ.detach().cpu(),
-                "mean_residual_P_PV": mean_res_P_PV.detach().cpu(),
-                "max_residual_P_PV": max_res_P_PV.detach().cpu(),
-                "mean_residual_Q_PV": mean_res_Q_PV.detach().cpu(),
-                "max_residual_Q_PV": max_res_Q_PV.detach().cpu(),
-                "mean_residual_P_REF": mean_res_P_REF.detach().cpu(),
-                "max_residual_P_REF": max_res_P_REF.detach().cpu(),
-                "mean_residual_Q_REF": mean_res_Q_REF.detach().cpu(),
-                "max_residual_Q_REF": max_res_Q_REF.detach().cpu(),
-                "mask_Qg_violation": mask_Qg_violation.detach().cpu(),
-            })
-        
+            mean_res_P_REF, max_res_P_REF = residual_stats_by_type(
+                residual_P,
+                mask_REF,
+                bus_batch,
+            )
+            mean_res_Q_REF, max_res_Q_REF = residual_stats_by_type(
+                residual_Q,
+                mask_REF,
+                bus_batch,
+            )
+            self.test_outputs[dataloader_idx].append(
+                {
+                    "dataset": dataset_name,
+                    "pred": output["bus"].detach().cpu(),
+                    "target": target.detach().cpu(),
+                    "mask_PQ": mask_PQ.cpu(),
+                    "mask_PV": mask_PV.cpu(),
+                    "mask_REF": mask_REF.cpu(),
+                    "cost_predicted": cost_pred.detach().cpu(),
+                    "cost_ground_truth": cost_gt.detach().cpu(),
+                    "mean_residual_P_PQ": mean_res_P_PQ.detach().cpu(),
+                    "max_residual_P_PQ": max_res_P_PQ.detach().cpu(),
+                    "mean_residual_Q_PQ": mean_res_Q_PQ.detach().cpu(),
+                    "max_residual_Q_PQ": max_res_Q_PQ.detach().cpu(),
+                    "mean_residual_P_PV": mean_res_P_PV.detach().cpu(),
+                    "max_residual_P_PV": max_res_P_PV.detach().cpu(),
+                    "mean_residual_Q_PV": mean_res_Q_PV.detach().cpu(),
+                    "max_residual_Q_PV": max_res_Q_PV.detach().cpu(),
+                    "mean_residual_P_REF": mean_res_P_REF.detach().cpu(),
+                    "max_residual_P_REF": max_res_P_REF.detach().cpu(),
+                    "mean_residual_Q_REF": mean_res_Q_REF.detach().cpu(),
+                    "max_residual_Q_REF": max_res_Q_REF.detach().cpu(),
+                    "mask_Qg_violation": mask_Qg_violation.detach().cpu(),
+                },
+            )
+
         final_residual_real_bus = torch.mean(torch.abs(residual_P))
         final_residual_imag_bus = torch.mean(torch.abs(residual_Q))
 
@@ -431,7 +513,11 @@ class OptimalPowerFlowTask(ReconstructionTask):
 
         loss_dict["Branch termal violation from"] = mean_thermal_violation_forward
         loss_dict["Branch termal violation to"] = mean_thermal_violation_reverse
-        loss_dict["Branch voltage angle difference violations"] = branch_angle_violation_mean
+        loss_dict["Branch voltage angle difference violations"] = (
+            branch_angle_violation_mean
+        )
+        loss_dict["Mean Qg violation PV buses"] = mean_Qg_violation_PV
+        loss_dict["Mean Qg violation REF buses"] = mean_Qg_violation_REF
 
         loss_dict["MSE PQ nodes - PG"] = mse_PQ[PG_OUT]
         loss_dict["MSE PV nodes - PG"] = mse_PV[PG_OUT]
@@ -509,9 +595,20 @@ class OptimalPowerFlowTask(ReconstructionTask):
             avg_reactive_res = metrics.get("Reactive Power Loss", " ")
             rmse_gen = metrics.get("MSE PG", 0) ** 0.5
             optimality_gap = metrics.get("Opt gap", " ")
-            branch_thermal_violation_from = metrics.get("Branch termal violation from", " ")
+            branch_thermal_violation_from = metrics.get(
+                "Branch termal violation from",
+                " ",
+            )
             branch_thermal_violation_to = metrics.get("Branch termal violation to", " ")
-            branch_angle_violation = metrics.get("Branch voltage angle difference violations", " ")
+            branch_angle_violation = metrics.get(
+                "Branch voltage angle difference violations",
+                " ",
+            )
+            mean_qg_violation_PV_buses = metrics.get("Mean Qg violation PV buses", " ")
+            mean_qg_violation_REF_buses = metrics.get(
+                "Mean Qg violation REF buses",
+                " ",
+            )
 
             # --- Main RMSE metrics file ---
             data_main = {
@@ -529,12 +626,24 @@ class OptimalPowerFlowTask(ReconstructionTask):
                     "Avg. active res. (MW)",
                     "Avg. reactive res. (MVar)",
                     "RMSE PG generators (MW)",
-                    "Mean optimality gap (%)", 
-                    "Mean branch termal violation from (MVA)", 
-                    "Mean branch termal violation to (MVA)", 
+                    "Mean optimality gap (%)",
+                    "Mean branch termal violation from (MVA)",
+                    "Mean branch termal violation to (MVA)",
                     "Mean branch angle difference violation (radians)",
+                    "Mean Qg violation PV buses",
+                    "Mean Qg violation REF buses",
                 ],
-                "Value": [avg_active_res, avg_reactive_res, rmse_gen, optimality_gap, branch_thermal_violation_from, branch_thermal_violation_to, branch_angle_violation]
+                "Value": [
+                    avg_active_res,
+                    avg_reactive_res,
+                    rmse_gen,
+                    optimality_gap,
+                    branch_thermal_violation_from,
+                    branch_thermal_violation_to,
+                    branch_angle_violation,
+                    mean_qg_violation_PV_buses,
+                    mean_qg_violation_REF_buses,
+                ],
             }
             df_residuals = pd.DataFrame(data_residuals)
 
@@ -564,9 +673,10 @@ class OptimalPowerFlowTask(ReconstructionTask):
                     "REF": torch.cat([d["mask_REF"] for d in outputs]),
                 }
                 all_cost_pred = torch.cat([d["cost_predicted"] for d in outputs])
-                all_cost_ground_truth = torch.cat([d["cost_ground_truth"] for d in outputs])
+                all_cost_ground_truth = torch.cat(
+                    [d["cost_ground_truth"] for d in outputs],
+                )
 
-                
                 # Convert to numpy for plotting
                 y_pred = all_cost_pred.numpy()
                 y_true = all_cost_ground_truth.numpy()
@@ -577,21 +687,37 @@ class OptimalPowerFlowTask(ReconstructionTask):
                 # Create scatter plot
                 plt.figure(figsize=(6, 6))
                 sns.scatterplot(x=y_true, y=y_pred, s=20, alpha=0.6)
-                
+
                 # Add y=x reference line
                 min_val = min(y_true.min(), y_pred.min())
                 max_val = max(y_true.max(), y_pred.max())
-                plt.plot([min_val, max_val], [min_val, max_val], 'k--', linewidth=1.0, alpha=0.7)
+                plt.plot(
+                    [min_val, max_val],
+                    [min_val, max_val],
+                    "k--",
+                    linewidth=1.0,
+                    alpha=0.7,
+                )
 
                 # Add correlation coefficient text
-                plt.text(0.05, 0.95, f"R = {corr:.3f}", transform=plt.gca().transAxes,
-                        fontsize=12, verticalalignment='top', bbox=dict(facecolor='white', alpha=0.6))
+                plt.text(
+                    0.05,
+                    0.95,
+                    f"R = {corr:.3f}",
+                    transform=plt.gca().transAxes,
+                    fontsize=12,
+                    verticalalignment="top",
+                    bbox=dict(facecolor="white", alpha=0.6),
+                )
 
                 plt.xlabel("Ground Truth Cost")
                 plt.ylabel("Predicted Cost")
                 plt.title(f"{dataset_name} – Predicted vs Ground Truth Cost")
                 plt.tight_layout()
-                plt.savefig(os.path.join(plot_dir, f"{dataset_name}_objective.png"), dpi=300)
+                plt.savefig(
+                    os.path.join(plot_dir, f"{dataset_name}_objective.png"),
+                    dpi=300,
+                )
                 plt.close()
 
                 plot_residuals_histograms(outputs, dataset_name, plot_dir)
@@ -603,22 +729,24 @@ class OptimalPowerFlowTask(ReconstructionTask):
                     feature_labels=["Vm", "Va", "Pg", "Qg"],
                     plot_dir=plot_dir,
                     prefix=dataset_name,
-                    qg_violation_mask=torch.cat([d["mask_Qg_violation"] for d in outputs])
+                    qg_violation_mask=torch.cat(
+                        [d["mask_Qg_violation"] for d in outputs],
+                    ),
                 )
-
-
 
         self.test_outputs.clear()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         raise NotImplementedError
-    
+
+
 @TASK_REGISTRY.register("PowerFlow")
 class PowerFlowTask(ReconstructionTask):
     """
     Concrete Optimal Power Flow task.
     Extends ReconstructionTask and adds OPF-specific metrics.
     """
+
     def __init__(self, args, data_normalizers):
         super().__init__(args, data_normalizers)
 
@@ -636,55 +764,99 @@ class PowerFlowTask(ReconstructionTask):
         num_bus = batch.x_dict["bus"].size(0)
         bus_edge_index = batch.edge_index_dict[("bus", "connects", "bus")]
         bus_edge_attr = batch.edge_attr_dict[("bus", "connects", "bus")]
-        _ , gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
-        
-        agg_gen_on_bus = scatter_add(batch.y_dict["gen"], gen_to_bus_index, dim=0, dim_size=num_bus)
-        #output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
-        target = torch.stack([batch.y_dict['bus'][:, VM_H], batch.y_dict['bus'][:, VA_H], agg_gen_on_bus.squeeze(), batch.y_dict['bus'][:, QG_H]], dim=1)
-        
+        _, gen_to_bus_index = batch.edge_index_dict[("gen", "connected_to", "bus")]
+
+        agg_gen_on_bus = scatter_add(
+            batch.y_dict["gen"],
+            gen_to_bus_index,
+            dim=0,
+            dim_size=num_bus,
+        )
+        # output_agg = torch.cat([batch.y_dict["bus"], agg_gen_on_bus], dim=1)
+        target = torch.stack(
+            [
+                batch.y_dict["bus"][:, VM_H],
+                batch.y_dict["bus"][:, VA_H],
+                agg_gen_on_bus.squeeze(),
+                batch.y_dict["bus"][:, QG_H],
+            ],
+            dim=1,
+        )
+
         # UN-COMMENT THIS TO CHECK PBE ON GROUND TRUTH
-        #output["bus"] = target 
+        # output["bus"] = target
 
         Pft, Qft = branch_flow_layer(output["bus"], bus_edge_index, bus_edge_attr)
         P_in, Q_in = node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
-        residual_P, residual_Q = node_residuals_layer(P_in, Q_in, output["bus"], batch.x_dict["bus"])
+        residual_P, residual_Q = node_residuals_layer(
+            P_in,
+            Q_in,
+            output["bus"],
+            batch.x_dict["bus"],
+        )
 
         bus_batch = batch.batch_dict["bus"]  # shape: [num_bus_total]
 
         mask_PQ = batch.mask_dict["PQ"]  # PQ buses
         mask_PV = batch.mask_dict["PV"]  # PV buses
-        mask_REF = batch.mask_dict["REF"] # Reference buses
+        mask_REF = batch.mask_dict["REF"]  # Reference buses
 
         if self.args.verbose:
-            mean_res_P_PQ, max_res_P_PQ = residual_stats_by_type(residual_P, mask_PQ, bus_batch)
-            mean_res_Q_PQ, max_res_Q_PQ = residual_stats_by_type(residual_Q, mask_PQ, bus_batch)
+            mean_res_P_PQ, max_res_P_PQ = residual_stats_by_type(
+                residual_P,
+                mask_PQ,
+                bus_batch,
+            )
+            mean_res_Q_PQ, max_res_Q_PQ = residual_stats_by_type(
+                residual_Q,
+                mask_PQ,
+                bus_batch,
+            )
 
-            mean_res_P_PV, max_res_P_PV = residual_stats_by_type(residual_P, mask_PV, bus_batch)
-            mean_res_Q_PV, max_res_Q_PV = residual_stats_by_type(residual_Q, mask_PV, bus_batch)
+            mean_res_P_PV, max_res_P_PV = residual_stats_by_type(
+                residual_P,
+                mask_PV,
+                bus_batch,
+            )
+            mean_res_Q_PV, max_res_Q_PV = residual_stats_by_type(
+                residual_Q,
+                mask_PV,
+                bus_batch,
+            )
 
-            mean_res_P_REF, max_res_P_REF = residual_stats_by_type(residual_P, mask_REF, bus_batch)
-            mean_res_Q_REF, max_res_Q_REF = residual_stats_by_type(residual_Q, mask_REF, bus_batch)
-            self.test_outputs[dataloader_idx].append({
-                "dataset": dataset_name,
-                "pred": output["bus"].detach().cpu(),
-                "target": target.detach().cpu(),
-                "mask_PQ": mask_PQ.cpu(),
-                "mask_PV": mask_PV.cpu(),
-                "mask_REF": mask_REF.cpu(),
-                "mean_residual_P_PQ": mean_res_P_PQ.detach().cpu(),
-                "max_residual_P_PQ": max_res_P_PQ.detach().cpu(),
-                "mean_residual_Q_PQ": mean_res_Q_PQ.detach().cpu(),
-                "max_residual_Q_PQ": max_res_Q_PQ.detach().cpu(),
-                "mean_residual_P_PV": mean_res_P_PV.detach().cpu(),
-                "max_residual_P_PV": max_res_P_PV.detach().cpu(),
-                "mean_residual_Q_PV": mean_res_Q_PV.detach().cpu(),
-                "max_residual_Q_PV": max_res_Q_PV.detach().cpu(),
-                "mean_residual_P_REF": mean_res_P_REF.detach().cpu(),
-                "max_residual_P_REF": max_res_P_REF.detach().cpu(),
-                "mean_residual_Q_REF": mean_res_Q_REF.detach().cpu(),
-                "max_residual_Q_REF": max_res_Q_REF.detach().cpu(),
-            })
-        
+            mean_res_P_REF, max_res_P_REF = residual_stats_by_type(
+                residual_P,
+                mask_REF,
+                bus_batch,
+            )
+            mean_res_Q_REF, max_res_Q_REF = residual_stats_by_type(
+                residual_Q,
+                mask_REF,
+                bus_batch,
+            )
+            self.test_outputs[dataloader_idx].append(
+                {
+                    "dataset": dataset_name,
+                    "pred": output["bus"].detach().cpu(),
+                    "target": target.detach().cpu(),
+                    "mask_PQ": mask_PQ.cpu(),
+                    "mask_PV": mask_PV.cpu(),
+                    "mask_REF": mask_REF.cpu(),
+                    "mean_residual_P_PQ": mean_res_P_PQ.detach().cpu(),
+                    "max_residual_P_PQ": max_res_P_PQ.detach().cpu(),
+                    "mean_residual_Q_PQ": mean_res_Q_PQ.detach().cpu(),
+                    "max_residual_Q_PQ": max_res_Q_PQ.detach().cpu(),
+                    "mean_residual_P_PV": mean_res_P_PV.detach().cpu(),
+                    "max_residual_P_PV": max_res_P_PV.detach().cpu(),
+                    "mean_residual_Q_PV": mean_res_Q_PV.detach().cpu(),
+                    "max_residual_Q_PV": max_res_Q_PV.detach().cpu(),
+                    "mean_residual_P_REF": mean_res_P_REF.detach().cpu(),
+                    "max_residual_P_REF": max_res_P_REF.detach().cpu(),
+                    "mean_residual_Q_REF": mean_res_Q_REF.detach().cpu(),
+                    "max_residual_Q_REF": max_res_Q_REF.detach().cpu(),
+                },
+            )
+
         final_residual_real_bus = torch.mean(torch.abs(residual_P))
         final_residual_imag_bus = torch.mean(torch.abs(residual_Q))
 
@@ -739,7 +911,7 @@ class PowerFlowTask(ReconstructionTask):
                 logger=False,
             )
         return
-    
+
     @rank_zero_only
     def on_test_end(self):
         if isinstance(self.logger, MLFlowLogger):
@@ -802,7 +974,7 @@ class PowerFlowTask(ReconstructionTask):
                     "Avg. active res. (MW)",
                     "Avg. reactive res. (MVar)",
                 ],
-                "Value": [avg_active_res, avg_reactive_res]
+                "Value": [avg_active_res, avg_reactive_res],
             }
             df_residuals = pd.DataFrame(data_residuals)
 
@@ -840,9 +1012,8 @@ class PowerFlowTask(ReconstructionTask):
                     masks=all_masks,
                     feature_labels=["Vm", "Va", "Pg", "Qg"],
                     plot_dir=plot_dir,
-                    prefix=dataset_name
+                    prefix=dataset_name,
                 )
-
 
         self.test_outputs.clear()
 

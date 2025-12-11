@@ -3,12 +3,12 @@ from gridfm_graphkit.datasets.normalizers import Normalizer
 import os.path as osp
 import os
 import torch
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Dataset
 import pandas as pd
 from tqdm import tqdm
 from typing import Optional, Callable
 from torch_geometric.data import HeteroData
-from gridfm_graphkit.datasets.globals import *
+from gridfm_graphkit.datasets.globals import VA_H, PG_H
 
 
 class HeteroGridDatasetDisk(Dataset):
@@ -59,7 +59,7 @@ class HeteroGridDatasetDisk(Dataset):
 
     @property
     def processed_done_file(self):
-        return f"processed_raw_files.done"
+        return "processed_raw_files.done"
 
     @property
     def processed_file_names(self):
@@ -230,7 +230,7 @@ class HeteroGridDatasetDisk(Dataset):
                 f
                 for f in os.listdir(self.processed_dir)
                 if f.startswith(
-                    f"data_index_",
+                    "data_index_",
                 )
                 and f.endswith(".pt")
             ]
