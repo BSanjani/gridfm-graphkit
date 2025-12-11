@@ -5,6 +5,7 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.io.registries import LOSS_REGISTRY
+from torch_scatter import scatter_add
 
 
 class BaseLoss(nn.Module, ABC):
@@ -45,7 +46,7 @@ class MaskedMSELoss(BaseLoss):
     Mean Squared Error loss computed only on masked elements.
     """
 
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super(MaskedMSELoss, self).__init__()
         self.reduction = "mean"
 
@@ -66,7 +67,7 @@ class MaskedMSELoss(BaseLoss):
 class MaskedOPFHeteroLoss(torch.nn.Module):
     """Masked OPF loss for heterogeneous graphs (bus + generator level)."""
 
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super().__init__()
         self.reduction = "mean"
 
@@ -101,7 +102,7 @@ class MaskedOPFHeteroLoss(torch.nn.Module):
 
 @LOSS_REGISTRY.register("MaskedGenMSE")
 class MaskedGenMSE(torch.nn.Module):
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super().__init__()
         self.reduction = "mean"
 
@@ -124,7 +125,7 @@ class MaskedGenMSE(torch.nn.Module):
 
 @LOSS_REGISTRY.register("MaskedBusMSE")
 class MaskedBusMSE(torch.nn.Module):
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super().__init__()
         self.reduction = "mean"
 
@@ -151,7 +152,7 @@ class MaskedBusMSE(torch.nn.Module):
 class MSELoss(BaseLoss):
     """Standard Mean Squared Error loss."""
 
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super(MSELoss, self).__init__()
         self.reduction = "mean"
 
@@ -170,7 +171,7 @@ class MSELoss(BaseLoss):
 
 @LOSS_REGISTRY.register("PBE")
 class PBELoss(BaseLoss):
-    def __init__(self, args):
+    def __init__(self, loss_args, args):
         super().__init__()
         self.visualization = args.verbose
 
@@ -282,9 +283,9 @@ class MixedLoss(BaseLoss):
 
 @LOSS_REGISTRY.register("LayeredWeightedPhysics")
 class LayeredWeightedPhysicsLoss(BaseLoss):
-    def __init__(self, args) -> None:
+    def __init__(self, loss_args, args) -> None:
         super().__init__()
-        self.base_weight = args.training.base_weight
+        self.base_weight = loss_args.base_weight
 
     def forward(
         self,
@@ -317,3 +318,50 @@ class LayeredWeightedPhysicsLoss(BaseLoss):
         loss_details["loss"] = total_loss
         loss_details["Layered Weighted Physics Loss"] = total_loss.item()
         return loss_details
+
+
+@LOSS_REGISTRY.register("LossPerDim")
+class LossPerDim(BaseLoss):
+    def __init__(self, loss_args, args):
+        super(LossPerDim, self).__init__()
+        self.reduction = "mean"
+        self.loss_str = loss_args.loss_str
+        self.dim = loss_args.dim
+        if not self.dim in ["VM", "VA", "P_in", "Q_in"]:
+            raise ValueError(f'LossPerDim initialized with not valid loss_str: {loss_str}')
+        
+    def forward(
+        self,
+        pred_dict,
+        target_dict,
+        edge_index,
+        edge_attr,
+        mask_dict,
+        model=None,
+    ):
+        
+        if self.dim == "VM":
+            temp_pred = pred_dict['bus'][:, VM_OUT]
+            temp_target = target_dict['bus'][:, VM_H]
+        elif self.dim == "VA":
+            temp_pred = pred_dict['bus'][:, VA_OUT]
+            temp_target = target_dict['bus'][:, VA_H]
+        elif self.dim == "P_in":
+            temp_pred = pred_dict['bus'][:, PG_OUT]
+            num_bus = temp_pred.size(0)
+            gen_to_bus_index = edge_index[("gen", "connected_to", "bus")]
+            temp_target = scatter_add(
+                target_dict['gen'][:, PG_H],
+                gen_to_bus_index[1, :],
+                dim=0,
+                dim_size=num_bus,
+            )
+        elif self.dim == "Q_in":
+            temp_pred = pred_dict['bus'][:, QG_OUT]
+            temp_target = target_dict['bus'][:, QD_H - QG_H]
+
+        mse_loss = F.mse_loss(temp_pred, temp_target, reduction=self.reduction)
+        mae_loss = F.l1_loss(temp_pred, temp_target, reduction=self.reduction)
+
+        loss = mse_loss if self.loss_str == "mse" else mae_loss
+        return {"loss": loss, f"MSE loss {self.dim}": mse_loss.detach(), f"MAE loss {self.dim}": mae_loss.detach()}

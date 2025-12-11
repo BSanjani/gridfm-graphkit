@@ -1,7 +1,8 @@
 callbacks:
   patience: 100
   tol: 0
-task: OptimalPowerFlow
+task: 
+  task_name: OptimalPowerFlow
 data:
   baseMVA: 100
   mask_value: 0.0
@@ -31,7 +32,7 @@ optimizer:
   lr_patience: 5
 seed: 0
 training:
-  batch_size: 32
+  batch_size: 4
   epochs: 200
   loss_weights:
   - 0.1
@@ -41,7 +42,10 @@ training:
   - LayeredWeightedPhysics
   - MaskedGenMSE
   - MaskedBusMSE
-  base_weight: 0.5
+  loss_args:
+  - base_weight: 0.5
+  - {}
+  - {}
   accelerator: auto
   devices: auto
   strategy: auto

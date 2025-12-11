@@ -16,4 +16,5 @@ __all__ = [
     "MaskedOPFHeteroLoss",
     "MaskedBusMSE",
     "MaskedGenMSE",
+    "LossPerDim"
 ]

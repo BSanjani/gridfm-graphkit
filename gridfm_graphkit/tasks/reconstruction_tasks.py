@@ -1,4 +1,4 @@
-import lightning as L
+import lightning
 from gridfm_graphkit.io.param_handler import load_model, get_loss_function
 from gridfm_graphkit.datasets.globals import *
 from gridfm_graphkit.tasks.base_task import BaseTask
@@ -14,7 +14,6 @@ from lightning.pytorch.loggers import MLFlowLogger
 import numpy as np
 import os
 import pandas as pd
-
 
 
 class ReconstructionTask(BaseTask):
@@ -849,3 +848,16 @@ class PowerFlowTask(ReconstructionTask):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         raise NotImplementedError
+
+
+@TASK_REGISTRY.register("StateEstimation")
+class StateEstimationTask(ReconstructionTask):
+    def __init__(self, args, data_normalizers):
+        super().__init__(args, data_normalizers)
+
+    # TODO: add custom test and predict steps
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
+        pass
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        pass

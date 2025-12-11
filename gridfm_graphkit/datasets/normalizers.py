@@ -86,7 +86,7 @@ class HeteroDataMVANormalizer(Normalizer):
             baseMVA (float): baseMVA found in casefile. From ``args.data.baseMVA``.
         """
         self.baseMVA_orig = getattr(args.data, "baseMVA", 100)
-        self.baseMVA = None
+        self.baseMVA = getattr(args.data, "normalizationMVA", None)
 
     def to(self, device):
         pass
@@ -106,22 +106,23 @@ class HeteroDataMVANormalizer(Normalizer):
             raise ValueError(
                 "bus_data and gen_data must be provided for node-level normalization.",
             )
+        
+        if self.baseMVA is None:
+            pd_values = bus_data["Pd"]
+            qd_values = bus_data["Qd"]
+            pg_values = gen_data["p_mw"]
+            qg_values = bus_data["Qg"]
 
-        pd_values = bus_data["Pd"]
-        qd_values = bus_data["Qd"]
-        pg_values = gen_data["p_mw"]
-        qg_values = bus_data["Qg"]
+            non_zero_values = pd.concat(
+                [
+                    pd_values[pd_values != 0],
+                    qd_values[qd_values != 0],
+                    pg_values[pg_values != 0],
+                    qg_values[qg_values != 0],
+                ],
+            )
 
-        non_zero_values = pd.concat(
-            [
-                pd_values[pd_values != 0],
-                qd_values[qd_values != 0],
-                pg_values[pg_values != 0],
-                qg_values[qg_values != 0],
-            ],
-        )
-
-        self.baseMVA = np.percentile(non_zero_values, 95)
+            self.baseMVA = np.percentile(non_zero_values, 95)
         self.vn_kv_max = float(bus_data["vn_kv"].max())
 
         # ----------------------------------------------------
@@ -135,9 +136,9 @@ class HeteroDataMVANormalizer(Normalizer):
 
     def fit_from_dict(self, params: dict):
         # Base MVA
-        self.baseMVA = params.get("baseMVA")
-
-        self.baseMVA_orig = params.get("baseMVA_orig")
+        if self.baseMVA is None:
+            self.baseMVA = params.get("baseMVA")
+            self.baseMVA_orig = params.get("baseMVA_orig")
 
         # vn_kv
         self.vn_kv_max = params.get("vn_kv_max")
@@ -189,10 +190,18 @@ class HeteroDataMVANormalizer(Normalizer):
         data.edge_attr_dict[("bus", "connects", "bus")][:, ANG_MIN] *= torch.pi / 180.0
         data.edge_attr_dict[("bus", "connects", "bus")][:, ANG_MAX] *= torch.pi / 180.0
         data.edge_attr_dict[("bus", "connects", "bus")][:, RATE_A] /= self.baseMVA
+        data.baseMVA = self.baseMVA
+        data.is_normalized = True
 
     def inverse_transform(self, data: HeteroData):
         if self.baseMVA is None or self.baseMVA == 0:
             raise ValueError("BaseMVA not properly set")
+        
+        if not data.is_normalized.all():
+            raise ValueError("Attempting to denormalize data which is not normalized")
+        
+        if (data.baseMVA != self.baseMVA).any():
+            raise ValueError(f"Normalizer baseMVA was {self.baseMVA} but Data object baseMVA is {data.baseMVA}")
 
         # -------- BUS INPUT INVERSE NORMALIZATION --------
         data.x_dict["bus"][:, PD_H] *= self.baseMVA
@@ -239,6 +248,7 @@ class HeteroDataMVANormalizer(Normalizer):
         data.edge_attr_dict[("bus", "connects", "bus")][:, ANG_MAX] *= 180.0 / torch.pi
 
         data.edge_attr_dict[("bus", "connects", "bus")][:, RATE_A] *= self.baseMVA
+        data.is_normalized = False
 
     def inverse_output(self, output):
         bus_output = output["bus"]

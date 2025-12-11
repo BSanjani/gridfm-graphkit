@@ -27,6 +27,14 @@ class NestedNamespace(argparse.Namespace):
             if isinstance(value, dict):
                 # Recursively convert dictionaries to NestedNamespace
                 setattr(self, key, NestedNamespace(**value))
+            elif isinstance(value, list):
+                list_of_namespaces = []
+                for element in value:
+                    if isinstance(element, dict):
+                        list_of_namespaces.append(NestedNamespace(**element))
+                    else:
+                        list_of_namespaces.append(element)
+                setattr(self, key, list_of_namespaces)
             else:
                 setattr(self, key, value)
 
@@ -90,9 +98,9 @@ def get_loss_function(args):
         ValueError: If an unknown loss function is specified.
     """
     loss_functions = []
-    for loss_name in args.training.losses:
+    for loss_name, loss_args in zip(args.training.losses, args.training.loss_args):
         try:
-            loss_functions.append(LOSS_REGISTRY.create(loss_name, args))
+            loss_functions.append(LOSS_REGISTRY.create(loss_name, loss_args, args))
         except KeyError:
             raise ValueError(f"Unknown loss: {loss_name}")
 
@@ -137,7 +145,7 @@ def get_task_transforms(args) -> Compose:
     Load the task-specific transforms
     """
 
-    task_transforms = args.task
+    task_transforms = args.task.task_name
 
     try:
         return TRANSFORM_REGISTRY.create(task_transforms, args)
@@ -149,7 +157,7 @@ def get_task(args, data_normalizers) -> BaseTask:
     """
     Load the task module
     """
-    task = args.task
+    task = args.task.task_name
 
     try:
         return TASK_REGISTRY.create(task, args, data_normalizers)
@@ -161,7 +169,7 @@ def get_physics_decoder(args) -> torch.nn.Module:
     """
     Load the task module
     """
-    task = args.task
+    task = args.task.task_name
 
     try:
         return PHYSICS_DECODER_REGISTRY.create(task)

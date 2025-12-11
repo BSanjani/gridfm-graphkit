@@ -34,7 +34,7 @@ class GNS_heterogeneous(nn.Module):
         self.output_gen_dim = args.model.output_gen_dim
         self.edge_dim = args.model.edge_dim
         self.heads = args.model.attention_head
-        self.task = args.task
+        self.task = args.task.task_name
         self.dropout = getattr(args.model, "dropout", 0.0)
 
         # projections for each node type
@@ -185,48 +185,64 @@ class GNS_heterogeneous(nn.Module):
             # Decode bus and generator predictions
             bus_temp = self.mlp_bus(h_bus)  # [Nb, 2]  -> Vm, Va
             gen_temp = self.mlp_gen(h_gen)  # [Ng, 1]  -> Pg
-            bus_temp = torch.where(bus_mask, bus_temp, bus_fixed)
-            gen_temp = torch.where(gen_mask, gen_temp, gen_fixed)
+            
+            if self.task == "StateEstimation":
+                if i == self.num_layers - 1:
+                    # TODO: move this to a physics decoder
+                    Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
+                    P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
+                    output_temp = self.physics_decoder(
+                        P_in,
+                        Q_in,
+                        bus_temp,
+                        x_dict["bus"],
+                        None,
+                        None,
+                    )
 
-            if self.task == "OptimalPowerFlow":
-                bus_temp[:, VM_OUT] = bound_with_sigmoid(
-                    bus_temp[:, VM_OUT],
-                    x_dict["bus"][:, MIN_VM_H],
-                    x_dict["bus"][:, MAX_VM_H],
+            else:
+                bus_temp = torch.where(bus_mask, bus_temp, bus_fixed)
+                gen_temp = torch.where(gen_mask, gen_temp, gen_fixed)
+
+                if self.task == "OptimalPowerFlow":
+                    bus_temp[:, VM_OUT] = bound_with_sigmoid(
+                        bus_temp[:, VM_OUT],
+                        x_dict["bus"][:, MIN_VM_H],
+                        x_dict["bus"][:, MAX_VM_H],
+                    )
+                    gen_temp[:, PG_OUT_GEN] = bound_with_sigmoid(
+                        gen_temp[:, PG_OUT_GEN],
+                        x_dict["gen"][:, MIN_PG],
+                        x_dict["gen"][:, MAX_PG],
+                    )
+
+                Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
+                P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
+                agg_bus = scatter_add(
+                    gen_temp.squeeze(),
+                    gen_to_bus_index,
+                    dim=0,
+                    dim_size=num_bus,
                 )
-                gen_temp[:, PG_OUT_GEN] = bound_with_sigmoid(
-                    gen_temp[:, PG_OUT_GEN],
-                    x_dict["gen"][:, MIN_PG],
-                    x_dict["gen"][:, MAX_PG],
+                output_temp = self.physics_decoder(
+                    P_in,
+                    Q_in,
+                    bus_temp,
+                    x_dict["bus"],
+                    agg_bus,
+                    mask_dict,
+                )
+                residual_P, residual_Q = self.node_residuals_layer(
+                    P_in,
+                    Q_in,
+                    output_temp,
+                    x_dict["bus"],
                 )
 
-            Pft, Qft = self.branch_flow_layer(bus_temp, bus_edge_index, bus_edge_attr)
-            P_in, Q_in = self.node_injection_layer(Pft, Qft, bus_edge_index, num_bus)
-            agg_bus = scatter_add(
-                gen_temp.squeeze(),
-                gen_to_bus_index,
-                dim=0,
-                dim_size=num_bus,
-            )
-            output_temp = self.physics_decoder(
-                P_in,
-                Q_in,
-                bus_temp,
-                x_dict["bus"],
-                agg_bus,
-                mask_dict,
-            )
-            residual_P, residual_Q = self.node_residuals_layer(
-                P_in,
-                Q_in,
-                output_temp,
-                x_dict["bus"],
-            )
+                bus_residuals = torch.stack([residual_P, residual_Q], dim=-1)
 
-            bus_residuals = torch.stack([residual_P, residual_Q], dim=-1)
-
-            # Save and project residuals to latent space
-            self.layer_residuals[i] = torch.linalg.norm(bus_residuals, dim=-1).mean()
-            h_bus = h_bus + self.physics_mlp(bus_residuals)
-
+                # Save and project residuals to latent space
+                self.layer_residuals[i] = torch.linalg.norm(bus_residuals, dim=-1).mean()
+                h_bus = h_bus + self.physics_mlp(bus_residuals)
+            
         return {"bus": output_temp, "gen": gen_temp}

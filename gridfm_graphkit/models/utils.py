@@ -54,6 +54,10 @@ class ComputeNodeInjection(nn.Module):
 
         return P_in, Q_in
 
+def compute_shunt_power(bus_data_pred, bus_data_orig):
+    p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
+    q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
+    return p_shunt, q_shunt
 
 @PHYSICS_DECODER_REGISTRY.register("OptimalPowerFlow")
 class PhysicsDecoderOPF(nn.Module):
@@ -64,7 +68,7 @@ class PhysicsDecoderOPF(nn.Module):
         mask_pvref = mask_pv | mask_ref
 
         # Shunt reactive power contribution
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
+        _, q_shunt = compute_shunt_power(bus_data_pred, bus_data_orig)
 
         # Reactive load
         Qd = bus_data_orig[:, QD_H]
@@ -106,8 +110,8 @@ class PhysicsDecoderPF(nn.Module):
         mask_pvref = mask_pv | mask_ref  # Qg computed here
 
         # --- Shunt contributions ---
-        p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
+        p_shunt, q_shunt = compute_shunt_power(bus_data_pred, bus_data_orig)
+
 
         # --- Loads ---
         Pd = bus_data_orig[:, PD_H]
@@ -136,6 +140,15 @@ class PhysicsDecoderPF(nn.Module):
         output = torch.stack([Vm_out, Va_out, Pg_new, Qg_new], dim=1)
 
         return output
+    
+@PHYSICS_DECODER_REGISTRY.register("StateEstimation")
+class PhysicsDecoderSE(nn.Module):
+    def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig, agg_bus, mask_dict):
+        p_shunt, q_shunt = compute_shunt_power(bus_data_pred, bus_data_orig)
+        Vm_out = bus_data_pred[:, VM_OUT]
+        Va_out = bus_data_pred[:, VA_OUT]
+        output = torch.stack([Vm_out, Va_out, P_in - p_shunt, Q_in - q_shunt], dim=1)
+        return output
 
 
 class ComputeNodeResiduals(nn.Module):
@@ -143,8 +156,7 @@ class ComputeNodeResiduals(nn.Module):
 
     def forward(self, P_in, Q_in, bus_data_pred, bus_data_orig):
         # Shunt contributions
-        p_shunt = -bus_data_orig[:, GS] * bus_data_pred[:, VM_OUT] ** 2
-        q_shunt = bus_data_orig[:, BS] * bus_data_pred[:, VM_OUT] ** 2
+        p_shunt, q_shunt = compute_shunt_power(bus_data_pred, bus_data_orig)
 
         # Net residuals per bus
         residual_P = bus_data_pred[:, PG_OUT] - bus_data_orig[:, PD_H] + p_shunt - P_in
