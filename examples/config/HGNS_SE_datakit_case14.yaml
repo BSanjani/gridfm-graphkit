@@ -28,6 +28,7 @@ data:
   - case14_ieee
   scenarios:
   - 100000
+  split_by_load_scenario_idx: true
   test_ratio: 0.1
   val_ratio: 0.1
   workers: 32

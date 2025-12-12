@@ -21,6 +21,10 @@ from gridfm_graphkit.datasets.globals import (
     G_ON,
     # Edge feature indices
     B_ON,
+    YFF_TT_I,
+    YFF_TT_R,
+    YFT_TF_I,
+    YFT_TF_R
 )
 from gridfm_graphkit.datasets.normalizers import HeteroDataMVANormalizer
 

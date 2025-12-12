@@ -3,12 +3,12 @@ from gridfm_graphkit.datasets.normalizers import Normalizer
 import os.path as osp
 import os
 import torch
-from torch_geometric.data import Dataset
+from torch_geometric.data import Data, Dataset
 import pandas as pd
 from tqdm import tqdm
 from typing import Optional, Callable
 from torch_geometric.data import HeteroData
-from gridfm_graphkit.datasets.globals import VA_H, PG_H
+from gridfm_graphkit.datasets.globals import *
 
 
 class HeteroGridDatasetDisk(Dataset):
@@ -49,9 +49,17 @@ class HeteroGridDatasetDisk(Dataset):
             self.processed_dir,
             f"data_stats_{self.norm_method}.pt",
         )
-        if osp.exists(data_stats_path):
+
+        load_scenarios_path = osp.join(
+            self.processed_dir,
+            "load_scenarios.pt"
+        )
+        
+        if osp.exists(data_stats_path) and osp.exists(load_scenarios_path):
             self.data_stats = torch.load(data_stats_path, weights_only=False)
             self.data_normalizer.fit_from_dict(self.data_stats)
+            self.load_scenarios = torch.load(load_scenarios_path, weights_only=False)
+        
 
     @property
     def raw_file_names(self):
@@ -59,11 +67,11 @@ class HeteroGridDatasetDisk(Dataset):
 
     @property
     def processed_done_file(self):
-        return "processed_raw_files.done"
+        return f"processed_raw_files.done"
 
     @property
     def processed_file_names(self):
-        return [f"data_stats_{self.norm_method}.pt", self.processed_done_file]
+        return [f"data_stats_{self.norm_method}.pt", "load_scenarios.pt", self.processed_done_file]
 
     def download(self):
         pass
@@ -73,6 +81,9 @@ class HeteroGridDatasetDisk(Dataset):
         bus_data = pd.read_parquet(osp.join(self.raw_dir, "bus_data.parquet"))
         gen_data = pd.read_parquet(osp.join(self.raw_dir, "gen_data.parquet"))
         branch_data = pd.read_parquet(osp.join(self.raw_dir, "branch_data.parquet"))
+
+        load_scenarios = torch.tensor(bus_data.groupby('scenario')['load_scenario_idx'].first().values)
+        torch.save(load_scenarios, osp.join(self.processed_dir, f"load_scenarios.pt"))
 
         agg_gen = (
             gen_data.groupby(["scenario", "bus"])[["min_q_mvar", "max_q_mvar"]]
@@ -223,6 +234,8 @@ class HeteroGridDatasetDisk(Dataset):
 
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
             f.write("done")
+        
+        assert False
 
     def len(self):
         if self.length is None:
@@ -230,7 +243,7 @@ class HeteroGridDatasetDisk(Dataset):
                 f
                 for f in os.listdir(self.processed_dir)
                 if f.startswith(
-                    "data_index_",
+                    f"data_index_",
                 )
                 and f.endswith(".pt")
             ]
