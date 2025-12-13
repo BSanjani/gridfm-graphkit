@@ -4,6 +4,7 @@ from typing import Tuple
 from torch import Tensor
 import torch
 
+
 def split_dataset(
     dataset,
     log_dir: str,
@@ -57,10 +58,9 @@ def split_dataset_by_load_scenario_idx(
     val_ratio: float = 0.1,
     test_ratio: float = 0.1,
 ) -> Tuple[Subset, Subset, Subset]:
-    
     if val_ratio + test_ratio >= 1:
         raise ValueError("The sum of val_ratio and test_ratio must be less than 1.")
-    
+
     unique_load_scenarios = torch.unique(load_scenarios)
     val_size = int(val_ratio * len(unique_load_scenarios))
     test_size = int(test_ratio * len(unique_load_scenarios))

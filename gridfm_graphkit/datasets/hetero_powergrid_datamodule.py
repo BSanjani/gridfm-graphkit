@@ -8,7 +8,10 @@ from gridfm_graphkit.io.param_handler import (
     load_normalizer,
     get_task_transforms,
 )
-from gridfm_graphkit.datasets.utils import split_dataset, split_dataset_by_load_scenario_idx
+from gridfm_graphkit.datasets.utils import (
+    split_dataset,
+    split_dataset_by_load_scenario_idx,
+)
 from gridfm_graphkit.datasets.powergrid_hetero_dataset import HeteroGridDatasetDisk
 import numpy as np
 import random
@@ -80,7 +83,11 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = int(args.training.batch_size)
-        self.split_by_load_scenario_idx = getattr(args.data, 'split_by_load_scenario_idx', False)
+        self.split_by_load_scenario_idx = getattr(
+            args.data,
+            "split_by_load_scenario_idx",
+            False,
+        )
         self.args = args
         self.data_normalizers = []
         self.datasets = []
@@ -146,12 +153,14 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             # Random seed set before every split, same as above
             np.random.seed(self.args.seed)
             if self.split_by_load_scenario_idx:
-                train_dataset, val_dataset, test_dataset = split_dataset_by_load_scenario_idx(
-                    dataset,
-                    self.data_dir,
-                    load_scenarios,
-                    self.args.data.val_ratio,
-                    self.args.data.test_ratio,
+                train_dataset, val_dataset, test_dataset = (
+                    split_dataset_by_load_scenario_idx(
+                        dataset,
+                        self.data_dir,
+                        load_scenarios,
+                        self.args.data.val_ratio,
+                        self.args.data.test_ratio,
+                    )
                 )
             else:
                 train_dataset, val_dataset, test_dataset = split_dataset(

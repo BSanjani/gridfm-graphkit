@@ -50,16 +50,12 @@ class HeteroGridDatasetDisk(Dataset):
             f"data_stats_{self.norm_method}.pt",
         )
 
-        load_scenarios_path = osp.join(
-            self.processed_dir,
-            "load_scenarios.pt"
-        )
-        
+        load_scenarios_path = osp.join(self.processed_dir, "load_scenarios.pt")
+
         if osp.exists(data_stats_path) and osp.exists(load_scenarios_path):
             self.data_stats = torch.load(data_stats_path, weights_only=False)
             self.data_normalizer.fit_from_dict(self.data_stats)
             self.load_scenarios = torch.load(load_scenarios_path, weights_only=False)
-        
 
     @property
     def raw_file_names(self):
@@ -71,7 +67,11 @@ class HeteroGridDatasetDisk(Dataset):
 
     @property
     def processed_file_names(self):
-        return [f"data_stats_{self.norm_method}.pt", "load_scenarios.pt", self.processed_done_file]
+        return [
+            f"data_stats_{self.norm_method}.pt",
+            "load_scenarios.pt",
+            self.processed_done_file,
+        ]
 
     def download(self):
         pass
@@ -82,7 +82,9 @@ class HeteroGridDatasetDisk(Dataset):
         gen_data = pd.read_parquet(osp.join(self.raw_dir, "gen_data.parquet"))
         branch_data = pd.read_parquet(osp.join(self.raw_dir, "branch_data.parquet"))
 
-        load_scenarios = torch.tensor(bus_data.groupby('scenario')['load_scenario_idx'].first().values)
+        load_scenarios = torch.tensor(
+            bus_data.groupby("scenario")["load_scenario_idx"].first().values,
+        )
         torch.save(load_scenarios, osp.join(self.processed_dir, f"load_scenarios.pt"))
 
         agg_gen = (
@@ -234,7 +236,7 @@ class HeteroGridDatasetDisk(Dataset):
 
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
             f.write("done")
-        
+
         assert False
 
     def len(self):

@@ -1,4 +1,3 @@
-
 from copy import deepcopy
 import torch
 from torch import Tensor
@@ -24,7 +23,7 @@ from gridfm_graphkit.datasets.globals import (
     YFF_TT_I,
     YFF_TT_R,
     YFT_TF_I,
-    YFT_TF_R
+    YFT_TF_R,
 )
 from gridfm_graphkit.datasets.normalizers import HeteroDataMVANormalizer
 
@@ -200,6 +199,7 @@ class ApplyMasking(BaseTransform):
 
         return data
 
+
 class LoadGridParamsFromPath(BaseTransform):
     def __init__(self, args):
         super().__init__()
@@ -207,21 +207,20 @@ class LoadGridParamsFromPath(BaseTransform):
         self.grid_data = torch.load(self.grid_path, weights_only=False)
 
         # Normalizer is needed in order to normalize the grid_data in case the input data is normalized
-        self.normalizer = HeteroDataMVANormalizer(args) 
+        self.normalizer = HeteroDataMVANormalizer(args)
 
         # Set to a dummy value since it is needed for the normalizer transform, but the column vn_kv will be ignored.
-        self.normalizer.vn_kv_max = 1 
+        self.normalizer.vn_kv_max = 1
 
     def forward(self, data):
-        if hasattr(data, 'is_normalized'):
+        if hasattr(data, "is_normalized"):
             self.normalizer.baseMVA = data.baseMVA
             grid_data = deepcopy(self.grid_data)
             self.normalizer.transform(grid_data)
-        
+
         cols = [YFF_TT_R, YFF_TT_I, YFT_TF_R, YFT_TF_I, B_ON]
-        data[('bus', 'connects', 'bus')].edge_attr[:, cols] = grid_data[('bus', 'connects', 'bus')].edge_attr[:, cols]
-        data['gen'].x[:, G_ON] = grid_data['gen'].x[:, G_ON]
-        return data 
-
-
-
+        data[("bus", "connects", "bus")].edge_attr[:, cols] = grid_data[
+            ("bus", "connects", "bus")
+        ].edge_attr[:, cols]
+        data["gen"].x[:, G_ON] = grid_data["gen"].x[:, G_ON]
+        return data

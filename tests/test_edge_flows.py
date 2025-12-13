@@ -5,6 +5,7 @@ import yaml
 from gridfm_graphkit.models.utils import ComputeBranchFlow
 from gridfm_graphkit.datasets.globals import VM_H, VA_H, P_E, Q_E
 
+
 def test_edge_flows():
     data = torch.load(
         "/dccstor/gridfm/opf_data/case14_ieee/processed/data_index_0.pt",
@@ -27,7 +28,7 @@ def test_edge_flows():
     branch_flow_layer = ComputeBranchFlow()
 
     Pft, Qft = branch_flow_layer(
-        data['bus'].x[:, [VM_H, VA_H]],
+        data["bus"].x[:, [VM_H, VA_H]],
         bus_edge_index,
         bus_edge_attr,
     )
@@ -35,7 +36,8 @@ def test_edge_flows():
     assert torch.isclose(Pft, bus_edge_attr[:, P_E], atol=1e-4).all()
     assert torch.isclose(Qft, bus_edge_attr[:, Q_E], atol=1e-4).all()
 
-    print('hi')
+    print("hi")
+
 
 if __name__ == "__main__":
     test_edge_flows()

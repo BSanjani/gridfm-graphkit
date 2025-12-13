@@ -3,7 +3,7 @@ from gridfm_graphkit.datasets.transforms import (
     RemoveInactiveBranches,
     RemoveInactiveGenerators,
     ApplyMasking,
-    LoadGridParamsFromPath
+    LoadGridParamsFromPath,
 )
 from gridfm_graphkit.datasets.masking import (
     AddOPFHeteroMask,
@@ -46,7 +46,7 @@ class StateEstimationTransforms(Compose):
     def __init__(self, args):
         transforms = []
 
-        if hasattr(args.task, 'grid_path'):
+        if hasattr(args.task, "grid_path"):
             transforms.append(LoadGridParamsFromPath(args))
         transforms.append(RemoveInactiveBranches())
         transforms.append(RemoveInactiveGenerators())
