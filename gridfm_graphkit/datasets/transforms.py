@@ -217,6 +217,8 @@ class LoadGridParamsFromPath(BaseTransform):
             self.normalizer.baseMVA = data.baseMVA
             grid_data = deepcopy(self.grid_data)
             self.normalizer.transform(grid_data)
+        else:
+            grid_data = deepcopy(self.grid_data)
 
         cols = [YFF_TT_R, YFF_TT_I, YFT_TF_R, YFT_TF_I, B_ON]
         data[("bus", "connects", "bus")].edge_attr[:, cols] = grid_data[

@@ -12,6 +12,7 @@ from gridfm_graphkit.datasets.globals import (
     VM_H,
     VA_H,
     QD_H,
+    PD_H,
     # Output feature indices
     VM_OUT,
     VA_OUT,
@@ -354,6 +355,11 @@ class LossPerDim(BaseLoss):
         self.dim = loss_args.dim
         if self.dim not in ["VM", "VA", "P_in", "Q_in"]:
             raise ValueError(
+                f"LossPerDim initialized with not valid dim: {self.dim}",
+            )
+    
+        elif self.loss_str not in ["MAE", "MSE"]:
+            raise ValueError(
                 f"LossPerDim initialized with not valid loss_str: {self.loss_str}",
             )
 
@@ -376,15 +382,16 @@ class LossPerDim(BaseLoss):
             temp_pred = pred_dict["bus"][:, PG_OUT]
             num_bus = temp_pred.size(0)
             gen_to_bus_index = edge_index[("gen", "connected_to", "bus")]
-            temp_target = scatter_add(
+            temp_gen = scatter_add(
                 target_dict["gen"][:, PG_H],
                 gen_to_bus_index[1, :],
                 dim=0,
                 dim_size=num_bus,
             )
+            temp_target = temp_gen - target_dict["bus"][:, PD_H]
         elif self.dim == "Q_in":
             temp_pred = pred_dict["bus"][:, QG_OUT]
-            temp_target = target_dict["bus"][:, QD_H - QG_H]
+            temp_target = target_dict["bus"][:, QG_H] - target_dict["bus"][:, QD_H]
 
         mse_loss = F.mse_loss(temp_pred, temp_target, reduction=self.reduction)
         mae_loss = F.l1_loss(temp_pred, temp_target, reduction=self.reduction)

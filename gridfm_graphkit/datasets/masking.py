@@ -278,7 +278,7 @@ class SimulateMeasurements(BaseTransform):
         )
         std_gen = self.bus2gen_broadcaster(
             std_bus[:, [PD_H]],
-            data[("bus", "connected_to", "gen")]["edge_index"],
+            data[("bus", "connected_to", "gen")].edge_index,
             data["gen"].x.shape[0],
         )
 

@@ -201,7 +201,6 @@ class GNS_heterogeneous(nn.Module):
 
             if self.task == "StateEstimation":
                 if i == self.num_layers - 1:
-                    # TODO: move this to a physics decoder
                     Pft, Qft = self.branch_flow_layer(
                         bus_temp,
                         bus_edge_index,
