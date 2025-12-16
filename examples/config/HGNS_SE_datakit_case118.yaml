@@ -24,7 +24,7 @@ data:
   mask_value: 0.0
   normalization: HeteroDataMVANormalizer
   networks:
-  - case14_ieee
+  - case118_ieee
   scenarios:
   - 100000
   split_by_load_scenario_idx: true
@@ -50,7 +50,7 @@ optimizer:
 seed: 0
 training:
   batch_size: 32
-  epochs: 1
+  epochs: 200
   losses:
   - LossPerDim
   - LossPerDim

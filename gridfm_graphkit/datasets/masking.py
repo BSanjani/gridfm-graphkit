@@ -243,22 +243,31 @@ class SimulateMeasurements(BaseTransform):
             outliers[outliers_mask, feature] = True
         return std, outliers
 
-    def add_noise(self, data, mask, std):
+    def add_noise(self, in_tensor, mask, std):
         if self.measurement_distribution == "Gaussian":
-            return torch.where(mask, data, data + std * torch.randn(std.shape))
+            return torch.where(
+                mask,
+                in_tensor,
+                in_tensor + std * torch.randn(std.shape),
+            )
 
         elif self.measurement_distribution == "Laplace":
             b = std / torch.sqrt(torch.tensor(2))
             dist = torch.distributions.laplace.Laplace(0, 1)
-            return torch.where(mask, data, data + b * dist.sample(b.shape))
+            return torch.where(mask, in_tensor, in_tensor + b * dist.sample(b.shape))
 
         elif self.measurement_distribution == "Uniform":
             dist = torch.distributions.uniform.Uniform(-1, 1)
             return torch.where(
                 mask,
-                data,
-                data + torch.sqrt(torch.tensor(3)) * std * dist.sample(std.shape),
+                in_tensor,
+                in_tensor + torch.sqrt(torch.tensor(3)) * std * dist.sample(std.shape),
             )
+
+    def add_outliers(self, in_tensor, mask_outliers, std):
+        random_signs = 2 * torch.randint(0, 2, in_tensor.shape) - 1
+        outlier_samples = 3 * std * random_signs
+        return torch.where(mask_outliers, in_tensor + outlier_samples, in_tensor)
 
     def forward(self, data):
         std_bus = torch.full_like(data["bus"].y, float("inf"), dtype=torch.float)
@@ -330,6 +339,18 @@ class SimulateMeasurements(BaseTransform):
         data[("bus", "connects", "bus")].edge_attr[:, :2] = self.add_noise(
             data[("bus", "connects", "bus")].edge_attr[:, :2],
             mask_branch,
+            std_branch,
+        )
+
+        data["bus"].x[:, : data["bus"].y.size(1)] = self.add_outliers(
+            data["bus"].x[:, : data["bus"].y.size(1)],
+            outliers_bus,
+            std_bus,
+        )
+
+        data[("bus", "connects", "bus")].edge_attr[:, :2] = self.add_outliers(
+            data[("bus", "connects", "bus")].edge_attr[:, :2],
+            outliers_branch,
             std_branch,
         )
 

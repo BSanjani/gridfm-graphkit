@@ -357,7 +357,7 @@ class LossPerDim(BaseLoss):
             raise ValueError(
                 f"LossPerDim initialized with not valid dim: {self.dim}",
             )
-    
+
         elif self.loss_str not in ["MAE", "MSE"]:
             raise ValueError(
                 f"LossPerDim initialized with not valid loss_str: {self.loss_str}",
