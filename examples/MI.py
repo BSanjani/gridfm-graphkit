@@ -11,7 +11,6 @@ from gridfm_graphkit.io.param_handler import NestedNamespace
 #from gridfm_graphkit.utils.loss import PBELoss
 from gridfm_graphkit.datasets.globals import PQ, PV, REF
 
-
 # Standard open-source libraries
 import torch
 from torch_geometric.loader import DataLoader
@@ -25,18 +24,10 @@ import pickle
 import copy
 import yaml
 from sklearn import svm
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.metrics import adjusted_rand_score, silhouette_score
-
-from EvalUtils import colors
 
 temporary_storage='/dccstor/gridfm/sec_inf_temp/'
 data_directory="/dccstor/gridfm/PowerGraph_TP/"
-plot_directory = 'plots/MI/'
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def plotAll(seenData,unseenData,seenNames, evalNames, titles, suffix):
@@ -86,7 +77,7 @@ def addNanCorrect(tarlist, elem, removeNan):
         tarlist.append(elem)  
         #print('added', len(tarlist), tarlist[-1])      
 
-def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNan=True,error_based=True,topologyOnly=False,debug=False,ones=False):
+def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False, removeNan=True,topologyOnly=False,debug=False):
     #generates or load the data, e.g., model inputs and outputs, that can then be used to asssess membership inference risks
     data_dir = data_directory+dir
     if debug:
@@ -147,10 +138,7 @@ def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNa
             #batch.x[:, : batch.mask.shape[1]][batch.mask] = mask_value_expanded[batch.mask]
             #print(model.get_device())
             if topologyOnly:
-                if ones:
-                    replacement = torch.ones(batch.x.shape[0],6)
-                else:
-                    replacement = torch.zeros(batch.x.shape[0],6)
+                replacement = torch.zeros(batch.x.shape[0],6)
                 batch.x[:,:6]=replacement
                 #print(batch.x[:2,:]) #tested, works
                 # Perform inference
@@ -175,10 +163,7 @@ def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNa
                 mask = mask.cpu()
             if graph_wise:
                 while counter in batch.batch:
-                    if error_based:
-                        error = np.sqrt((output[batch.batch==counter]-batch.y[batch.batch==counter])**2)
-                    else:
-                        error = output[batch.batch==counter]
+                    error = np.sqrt((output[batch.batch==counter]-batch.y[batch.batch==counter])**2)
                     if randomMask:    
                         combined_mask = torch.logical_and(mask_PQ[batch.batch==counter],mask[batch.batch==counter])
                         var, mean = torch.var_mean(error[combined_mask],dim=0)
@@ -217,10 +202,7 @@ def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNa
                     addNanCorrect(diffVar[5], var[3].item(), removeNan)
                     counter = counter+1 
             elif nodeWise: #compute per node
-                if error_based:
-                    error = np.sqrt((output-batch.y)**2)
-                else:
-                    error = output
+                error = np.sqrt((output-batch.y)**2)
                 ###PQ
                 if randomMask:
                     combined_mask = torch.logical_and(mask_PQ,mask)
@@ -252,10 +234,7 @@ def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNa
                     diff[4]= diff[4]+tempRes[:,2].tolist()
                     diff[5] = diff[5]+tempRes[:,3].tolist() 
             else: #compute per batch
-                if error_based:
-                    error = np.sqrt((output-batch.y)**2)
-                else:
-                    error = output
+                error = np.sqrt((output-batch.y)**2)
                 #PQ
                 if randomMask:
                     combined_mask = torch.logical_and(mask_PQ,mask)
@@ -299,15 +278,10 @@ def genData(dir, model,graph_wise=False,nodeWise=False,randomMask=False,removeNa
     #    print(len(diff[i]),len(diffVar[i]))
     return diff, diffVar  
 
-def evalMIallFeatures(seenData, unseenData,titles, suffix, blackbox=True,threads=4,leaveOneOut=False,modelComparison=False):
-    if leaveOneOut:
-        MembershipBBMinusOneEval(seenData,unseenData, 'All_Loo', suffix, dim=len(seenData[0])) 
-    elif modelComparison:
-        ClassifierAblationMembership(seenData,unseenData, 'All', suffix, dim=len(seenData[0]))
-    else:
-        MembershipBlackBox(seenData,unseenData, 'All', suffix, dim=len(seenData[0])) 
+def evalMIallFeatures(seenData, unseenData,titles, suffix, blackbox=True,threads=4):
+   MembershipBlackBox(seenData,unseenData, 'All', suffix, dim=len(seenData[0])) 
 
-def evalMI(seenData, unseenData,titles, suffix, blackbox=True,threads=4, leaveOneOut=False,modelComparison=True):
+def evalMI(seenData, unseenData,titles, suffix, blackbox=True,threads=4):
     #iters = int(((len(titles)+1.0)/threads)+0.9)
     #tempind = np.array_split(np.arange(len(titles)),iters)
     #print(iters, tempind, len(seenData),len(seenData[0]))
@@ -317,10 +291,9 @@ def evalMI(seenData, unseenData,titles, suffix, blackbox=True,threads=4, leaveOn
     #        p.starmap(MembershipBlackBox, params)
     #        #p.starmap(debugMIDummy, params)
     for i in range(len(titles)):
-        MembershipBlackBox(seenData[i],unseenData[i],titles[i],suffix,modelComparison=True)
+        MembershipBlackBox(seenData[i],unseenData[i],titles[i],suffix)
 
-
-def fitSVM(dataO, labels,maxSamples=-1,fullComparison=False):
+def fitSVM(dataO, labels,maxSamples=-1):
     data=copy.copy(dataO)
     largeData=False
     if maxSamples>0:
@@ -378,67 +351,7 @@ def fitSVM(dataO, labels,maxSamples=-1,fullComparison=False):
                 bestgamma = gamma
                 bestkernel = 'rbf'
     #print(np.shape(X_train),np.shape(X_test),bestPerf)
-    if fullComparison:
-        for depth in [5,10,15,20,25]:
-            clf = RandomForestClassifier(max_depth=depth, random_state=0)
-            clf.fit(X_train,y_train)
-            res = clf.score(X_test,y_test)
-            if res > bestPerf:
-                bestPerf = res
-                bestclf = clf
-                bestc = 'max_depth '+str(depth)
-                bestgamma = ''
-                bestkernel = 'random forest'
-        for width in [25,50,100,500]:
-            for lr in [1e-5,1e-4,1e-3]:
-                clf = MLPClassifier(solver='lbfgs', alpha=lr,hidden_layer_sizes=(width, width), random_state=1, max_iter=500)
-                clf.fit(X_train,y_train)
-                res = clf.score(X_test,y_test)
-                if res > bestPerf:
-                    bestPerf = res
-                    bestclf = clf
-                    bestc = 'width '+str(width)
-                    bestgamma = 'lr = '+str(lr)
-                    bestkernel = 'MLP'
-        #add unsupervised comaprison
-        kmeans = KMeans(n_clusters=2, random_state=42)
-        kmeans.fit(X_train)
-        kmeans_labels = kmeans.predict(X_test)
-        res = adjusted_rand_score(y_test, kmeans_labels)
-        if res > bestPerf:
-            bestPerf = res
-            bestclf = kmeans
-            bestc = '2 '
-            bestgamma = '2 '
-            bestkernel = 'K-means'
-        #for eps in [0.01, 0.1, 0.5, 1.0, 5.0]:
-        #    dbscan = DBSCAN(eps=0.5, min_samples=5)
-        #    dbscan.fit(X_train)
-        #    dbscan_labels = dbscan.predict(X_test)
-        #    res = adjusted_rand_score(y_test, dbscan_labels)
-        #    if res > bestPerf:
-        #        bestPerf = res
-        #        bestclf = kmeans
-        #        bestc = str(eps)
-        #        bestgamma = '2 clusters'
-        #        bestkernel = 'DBScan'
     return bestclf, bestPerf, 'c '+str(bestc), bestgamma, bestkernel
-
-def recombineLeaveOut(arr, dim=1,index=1):
-    if dim==1:
-        combined = []
-        c = 0
-        for elem in arr:
-            if c!=index:
-                combined = combined+elem
-            c = c+1
-    else:
-        combined = [[] for i in repeat(None, dim)]
-        for i in range(dim):
-            for j in range(len(arr[i])):
-                if index!=j:
-                    combined[i]=combined[i]+arr[i][j]
-    return combined   
 
 def recombine(arr, dim=1,index=-1):
     if dim==1:
@@ -479,18 +392,14 @@ def MembershipAnalysisAblation(seenData, unseenData, suffix):
     #plot remainder to understand effect of known amount of data
     plt.style.use('ggplot')
     fig = plt.figure()
-    plt.hlines(baselineAcc,0,len(scores),colors=['k'])
-    plt.plot(dataSizes,scores,c=colors[0])
-    plt.plot(dataSizes,fass,c=colors[-1])
+    plt.hlines(baselineAcc,0,len(scores),colors=['silver'])
+    plt.plot(scores,c='blue')
+    plt.plot(fass,c='red')
     plt.xlabel('Number of Samples')
     plt.ylabel('Performance')
     plt.savefig('plots/MI/AblationAll_'+suffix+'.pdf')
     plt.clf()
     plt.cla()
-    res = np.zeros((2,len(dataSizes)))
-    res[0,:]=scores
-    res[1,:]=fass
-    np.save(plot_directory+'files/AblationAll_'+suffix+'.npy',res)
 
 def SimpleMembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
     # on full data - worst case / theoretically achievable
@@ -507,132 +416,14 @@ def SimpleMembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSample
         data = np.hstack((np.array(fulltrain),np.array(fullTest)))
         data = np.transpose(data)
         labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples,fullComparison=True)
+    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
     joblib.dump(clf, temporary_storage+'SVM/Abl'+str(maxSamples)+title+suffix+'_SVM.pickle')
     baselineAcc = float(np.mean(labs))
     fas = getFalseAlarmRate(clf,data,labs)
     return fullScore, baselineAcc, fas, c, gamma, kernel
 
 
-def MembershipBBMinusOneEval(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
-    suffix = 'n-1_'+suffix
-    if dim==1:
-        raise NotImplementedError
-    else:
-        fulltrain = recombine(seenData,dim)
-        fullTest = recombine(unseenData,dim)
-        if len(fulltrain)==0 or len(fullTest)==0:
-            return None
-        #compute over all datasets
-        # we know the labels, as seen / unseen corresponds to label. we gernate them on the fly
-        data = np.hstack((np.array(fulltrain),np.array(fullTest)))
-        data = np.transpose(data)
-        labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-        clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
-        joblib.dump(clf, temporary_storage+'SVM/'+title+suffix+'_SVM.pickle')
-        baselineAcc = float(np.mean(labs))
-        fas = getFalseAlarmRate(clf,data,labs)
-        res = DataStruct(fullScore, baselineAcc, fas, c, gamma, kernel)
-        for i in range(len(seenData[0])):
-            testSeen = recombine(seenData,dim,i)
-            #this is the test data
-            fulltrain = recombineLeaveOut(seenData,dim,i)
-            ##this is the training data, just drop the one used for testing
-            for j in range(len(unseenData[0])):
-                testUnseen = recombine(unseenData,dim,j)
-                ### this is our test data
-                fullTest = recombineLeaveOut(unseenData,dim,j)
-                ##this is the training data, just drop the one used for testing
-                if len(fulltrain)==0 or len(fullTest)==0:
-                    return None
-                data = np.hstack((np.array(fulltrain),np.array(fullTest)))
-                data = np.transpose(data)
-                labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-                #train SVM
-                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
-                indRes = Result(fullScore, c, gamma, kernel, i, j)
-                #now evaluate on all other datasets that we didn't use for the SVM
-                parScore = clf.score(np.array(testSeen).reshape(-1,dim),getLabels(np.shape(testSeen)[1],0))
-                indRes.addSeenResult(parScore)
-                parScore = clf.score(np.array(testUnseen).reshape(-1,dim),getLabels(np.shape(testUnseen)[1],0))
-                fas = getFalseAlarmRate(clf,np.array(testUnseen).reshape(-1,dim),getLabels(np.shape(testUnseen)[1],0))
-                indRes.addUnseenResult(parScore)
-                indRes.addFASResult(fas)
-                res.addResult(indRes)
-    # write output setting
-    print(title, suffix)
-    print(res.settingsStats())
-    res.summarize(name=title+suffix, printRes=True)
-    # save plot to analyse performance
-    res.plot(title, suffix+'_MI',plot_directory)
-    with open(temporary_storage+'interRes/'+title+suffix+'MI.pickle', 'wb') as f:
-        pickle.dump(res, f, pickle.HIGHEST_PROTOCOL)
-    #res.serialize(temporary_storage+'interRes/',title,suffix+'MI.pickle')
-
-def ClassifierAblationMembership(seenData,unseenData, title, suffix, dim=1):
-    suffix = suffix+'_FMCaUS'
-    # on full data - worst case / theoretically achievable
-    fulltrain = recombine(seenData,dim)
-    fullTest = recombine(unseenData,dim)
-    if len(fulltrain)==0 or len(fullTest)==0:
-        return None
-    #compute over all datasets
-    # we know the labels, as seen / unseen corresponds to label. we gernate them on the fly
-    if dim==1:
-        labs = getLabels(len(fulltrain),len(fullTest))
-        data = np.array(fulltrain+fullTest).reshape(-1,dim)
-    else:
-        data = np.hstack((np.array(fulltrain),np.array(fullTest)))
-        data = np.transpose(data)
-        labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,-1,fullComparison=True)
-    baselineAcc = float(np.mean(labs))
-    fas = getFalseAlarmRate(clf,data,labs)
-    res = DataStruct(fullScore, baselineAcc, fas, c, gamma, kernel)
-    # above, we trained on a subset of everything. Now, we use only
-    # two datasets and test how the SVM generalizes on the remaining things
-    if True:
-        for i in range(len(seenData[0])):
-            for j in range(len(unseenData[0])):
-                trainD = recombine(seenData,dim,i)
-                testD = recombine(unseenData,dim,j)
-                #print(np.shape(trainD),np.shape(testD))
-                data = np.hstack((np.array(trainD),np.array(testD)))
-                data = np.transpose(data)
-                labs = getLabels(np.shape(trainD)[1],np.shape(testD)[1])
-                #train SVM
-                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,-1,fullComparison=True)
-                indRes = Result(fullScore, c, gamma, kernel, i, j)
-                #now evaluate on all other datasets that we didn't use for the SVM
-                for k in range(len(seenData[0])):
-                    if k==i:
-                        pass       
-                    else:
-                        trainTemp = recombine(seenData,dim,k)
-                        parScore = clf.score(np.array(trainTemp).reshape(-1,dim),getLabels(np.shape(trainTemp)[1],0))
-                        indRes.addSeenResult(parScore)
-                for k in range(len(unseenData[0])):
-                    if k==j:
-                        pass
-                    else:
-                        testTemp = recombine(unseenData,dim,k)
-                        parScore = clf.score(np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
-                        fas = getFalseAlarmRate(clf,np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
-                        indRes.addUnseenResult(parScore)
-                        indRes.addFASResult(fas)
-                res.addResult(indRes)
-    # write output setting
-    print(title, suffix)
-    print(res.settingsStats())
-    res.summarize(name=title+suffix, printRes=True)
-    # save plot to analyse performance
-    res.plot(title, suffix+'_MI',plot_directory)
-    with open(temporary_storage+'interRes/'+title+suffix+'MI.pickle', 'wb') as f:
-        pickle.dump(res, f, pickle.HIGHEST_PROTOCOL)
-    #res.serialize(temporary_storage+'interRes/',title,suffix+'MI.pickle')
-
-
-def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,modelComparison=True):
+def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1):
     if maxSamples>0:
         suffix = suffix+'S'+str(maxSamples)
     # on full data - worst case / theoretically achievable
@@ -649,7 +440,7 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
         data = np.hstack((np.array(fulltrain),np.array(fullTest)))
         data = np.transpose(data)
         labs = getLabels(np.shape(np.array(fulltrain))[1],np.shape(np.array(fullTest))[1])
-    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples,fullComparison=modelComparison)
+    clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
     joblib.dump(clf, temporary_storage+'SVM/'+title+suffix+'_SVM.pickle')
     baselineAcc = float(np.mean(labs))
     fas = getFalseAlarmRate(clf,data,labs)
@@ -662,7 +453,7 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
                 print('within loop',len(seenData),len(seenData[i]),len(unseenData[j]))
                 labs = getLabels(len(seenData[i]),len(unseenData[j]))
                 data = np.array(seenData[i]+unseenData[j]).reshape(-1,dim) 
-                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples,fullComparison=modelComparison)
+                clf, fullScore, c, gamma, kernel = fitSVM(data, labs,maxSamples)
                 indRes = Result(fullScore, c, gamma, kernel, i, j)
                 #now evaluate on all other datasets that we didn't use for the SVM
                 for k in range(len(seenData)):
@@ -670,14 +461,14 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
                         pass       
                     else:
                         parScore = clf.score(np.array(seenData[k]).reshape(-1,dim),getLabels(len(seenData[k]),0))
-                        indRes.addSeenResult(parScore)
+                        indRes.addTrainResult(parScore)
                 for k in range(len(unseenData)):
                     if k==j:
                         pass
                     else:
                         parScore = clf.score(np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
                         fas = getFalseAlarmRate(clf,np.array(unseenData[k]).reshape(-1,dim),getLabels(0,len(unseenData[k])))
-                        indRes.addUnseenResult(parScore)
+                        indRes.addTestResult(parScore)
                         indRes.addFASResult(fas)
                 res.addResult(indRes)
     else:
@@ -699,7 +490,7 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
                     else:
                         trainTemp = recombine(seenData,dim,k)
                         parScore = clf.score(np.array(trainTemp).reshape(-1,dim),getLabels(np.shape(trainTemp)[1],0))
-                        indRes.addSeenResult(parScore)
+                        indRes.addTrainResult(parScore)
                 for k in range(len(unseenData[0])):
                     if k==j:
                         pass
@@ -707,7 +498,7 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
                         testTemp = recombine(unseenData,dim,k)
                         parScore = clf.score(np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
                         fas = getFalseAlarmRate(clf,np.array(testTemp).reshape(-1,dim),getLabels(np.shape(testTemp)[1],0))
-                        indRes.addUnseenResult(parScore)
+                        indRes.addTestResult(parScore)
                         indRes.addFASResult(fas)
                 res.addResult(indRes)
     # write output setting
@@ -715,7 +506,7 @@ def MembershipBlackBox(seenData,unseenData, title, suffix, dim=1,maxSamples=-1,m
     print(res.settingsStats())
     res.summarize(name=title+suffix, printRes=True)
     # save plot to analyse performance
-    res.plot(title, suffix+'_MI',plot_directory)
+    res.plot(title, suffix+'_MI')
     with open(temporary_storage+'interRes/'+title+suffix+'MI.pickle', 'wb') as f:
         pickle.dump(res, f, pickle.HIGHEST_PROTOCOL)
     #res.serialize(temporary_storage+'interRes/',title,suffix+'MI.pickle')
@@ -821,11 +612,9 @@ def genCasesSVMCrossEval(case='mean', featureList=[]):
     print(cases)
     print(results[0])
     print(results[1])
+      
 
-
-    
-
-def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot, MI, MIAblation=False, runIndividualFeatures=False,step='load',data_dir_seen=[],data_dir_unseen=[],error_based=True,leaveOneOut=False, modelComparison=False, ones=False):
+def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featureNames, removeNan, plot, MI, MIAblation=False, runIndividualFeatures=False,step='load',data_dir_seen=[],data_dir_unseen=[]):
     #print('started',graphWise,nodeWise, model12,topologyOnly)
     data_dir = temporary_storage
     unseenDataNames = ['39 epri','60c','1354','197 snem','300','73 rts','14','5 pfm']
@@ -840,14 +629,9 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
     if randomMask:
         suffix = suffix+'R_'
     if topologyOnly:
-        if ones:
-            suffix = suffix+'topolOnlyOnes_'
-        else:
-            suffix = suffix+'topolOnly_'
+        suffix = suffix+'topolOnly_'
     if not removeNan:
         suffix = suffix+'NaNZ_'
-    if not error_based:
-        suffix = suffix+'nonErr_'
     if 'gen' in step:        ### check whether data is already there
         try:
             with open(data_dir+featureNames[0]+suffix+'meanTrainTemp.pickle', 'rb') as f:
@@ -875,7 +659,7 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
         else:
             data_dirs = data_dir_unseen
         for datadir in data_dirs:
-            mean, var = genData(datadir, model,graph_wise=graphWise,nodeWise=nodeWise,randomMask=randomMask,topologyOnly=topologyOnly, removeNan=removeNan, error_based=error_based)
+            mean, var = genData(datadir, model,graph_wise=graphWise,nodeWise=nodeWise,randomMask=randomMask,topologyOnly=topologyOnly, removeNan=removeNan)
             for i in range(len(mean)):
                 unseenMean[i].append(mean[i])
                 if not nodeWise:
@@ -891,7 +675,7 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
             seenMean = [[] for i in repeat(None, 6)]
             seenVar = [[] for i in repeat(None, 6)]
         for datadir in data_dirs:
-            mean, var = genData(datadir, model,graph_wise=graphWise,nodeWise=nodeWise,randomMask=randomMask,topologyOnly=topologyOnly, removeNan=removeNan,error_based=error_based)
+            mean, var = genData(datadir, model,graph_wise=graphWise,nodeWise=nodeWise,randomMask=randomMask,topologyOnly=topologyOnly, removeNan=removeNan)
             for i in range(len(mean)):
                 seenMean[i].append(mean[i])
                 if not nodeWise:
@@ -955,15 +739,14 @@ def mainExperiments(graphWise,nodeWise, model12, randomMask, topologyOnly, featu
             plotAll(seenVar,unseenVar,seenNames, unseenDataNames, featureNames, suffix+'var')
     if MIAblation:
         MembershipAnalysisAblation(seenMean, unseenMean, suffix+'mean')
-        MembershipAnalysisAblation(seenVar, unseenVar, suffix+'var')
     if MI:
         #check membership
         if not removeNan and not runIndividualFeatures:
-            evalMIallFeatures(seenMean,unseenMean, featureNames, suffix+'mean',leaveOneOut=leaveOneOut,modelComparison=modelComparison)
+            evalMIallFeatures(seenMean,unseenMean, featureNames, suffix+'mean')
             if not nodeWise:
-                evalMIallFeatures(seenVar,unseenVar, featureNames, suffix+'var',leaveOneOut=leaveOneOut,modelComparison=modelComparison)
+                evalMIallFeatures(seenVar,unseenVar, featureNames, suffix+'var')
         if runIndividualFeatures:
-            evalMI(seenMean,unseenMean, featureNames, suffix+'mean',leaveOneOut=leaveOneOut,modelComparison=modelComparison)
+            evalMI(seenMean,unseenMean, featureNames, suffix+'mean')
             if not nodeWise:
-                evalMI(seenVar,unseenVar, featureNames, suffix+'var',leaveOneOut=leaveOneOut,modelComparison=modelComparison) 
+                evalMI(seenVar,unseenVar, featureNames, suffix+'var') 
 

@@ -14,15 +14,6 @@ from gridfm_graphkit.io.param_handler import NestedNamespace
 import torch
 import random
 
-colors = [
-    "#000080",  # navy
-    "#4F6D9E",  # lighter navy
-    "#B8860B",  # darkgoldenrod
-    "#D2B48C",  # lighter darkgoldenrod (tan-like)
-    "#009E73",  # green 
-    "#E69F00"   # orange 
-]
-
 def loadModel(modelPath,config_path = "config/case30_ieee_base.yaml"):
     if 'v0_1' in modelPath:
         config_path = "config/case30_ieee_baseSmall.yaml" 
@@ -69,7 +60,7 @@ def getLabels(posnum, negnum, val=1.0):
     return labels
 
 class Result:
-    def __init__(self, overallper, c, gamma, kernel, seenIndex, unseenIndex):
+    def __init__(self, overallper, c, gamma, kernel, trainIndex, testIndex):
         self.overallper = overallper
         self.c = c
         self.gamma = gamma
@@ -77,13 +68,13 @@ class Result:
         self.otherTrain = []
         self.otherTest = []
         self.fass = []
-        self.trainData = seenIndex
-        self.testData = unseenIndex
+        self.trainData = trainIndex
+        self.testData = testIndex
     
-    def addSeenResult(self, score):
+    def addTrainResult(self, score):
         self.otherTrain.append(score)
 
-    def addUnseenResult(self, score):
+    def addTestResult(self, score):
         self.otherTest.append(score)
 
     def addFASResult(self,score):
@@ -95,25 +86,11 @@ class Result:
     def getSetting(self):
         return [self.c, self.gamma, self.kernel]
     
-    def getSeenIndex(self):
+    def getTrainIndex(self):
         return self.trainData
     
-    def getUnseenIndex(self):
+    def getTestIndex(self):
         return self.testData
-    
-    def getOverall(self):
-        '''
-        returns in good, average, bad style whether this setting reliably generalizes
-        '''
-        if np.min(self.otherTrain)>0.95 and np.min(self.otherTest)>0.95 and np.max(self.fass)<0.05:
-            return  1.0, 0.0, 0.0
-        if np.max(self.otherTrain)<0.05 and np.max(self.otherTest)<0.05 and np.min(self.fass)>0.95:
-            return 0.0, 0.0, 1.0
-        return 0.0, 1.0, 0.0
-
-    def getVariances(self):
-        return np.var(self.otherTrain), np.var(self.otherTest), np.var(self.fass)
-
 
 class DataStruct:
     def __init__(self, overallper, baseline, fas, c, gamma, kernel):
@@ -134,11 +111,8 @@ class DataStruct:
             stats = stats+elem.getSetting()
         print(Counter(stats))
 
-    def getBaselines(self):
-        return self.overallper, self.fas
 
-
-    def plot(self, title, suffix, directory):
+    def plot(self, title, suffix):
         plt.style.use('ggplot')
         fig = plt.figure()
         #names for datasets
@@ -160,8 +134,8 @@ class DataStruct:
             positions = [[pos] for i in repeat(None, len(test))]
             plt.scatter(fas, positions, s=10,marker='o',c='Red')
             #now add corresponding train and test results
-            plt.scatter([-0.25],[pos],s=25,marker=evalMarkers[result.getUnseenIndex()],c='k')
-            plt.scatter([-0.2],[pos],s=25,marker=trainMarkers[result.getSeenIndex()],c='k')
+            plt.scatter([-0.25],[pos],s=25,marker=evalMarkers[result.getTestIndex()],c='k')
+            plt.scatter([-0.2],[pos],s=25,marker=trainMarkers[result.getTrainIndex()],c='k')
             #pltr = plt.violinplot(train, [pos],orientation='horizontal')
             #for pc in pltr['bodies']:
             #    pc.set_facecolor('Blue')
@@ -177,7 +151,7 @@ class DataStruct:
         labels = ['Train Performance', 'Seen Accuracy', 'Unseen Accuracy']
         plt.legend(lines, labels,bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower left",mode="expand", borderaxespad=0, ncol=3)
         plt.tight_layout()
-        plt.savefig(directory+title+'_'+suffix+'.pdf')
+        plt.savefig('plots/MI/'+title+'_'+suffix+'.pdf')
         plt.close(fig)
         plt.clf()
         plt.cla()
@@ -219,46 +193,3 @@ class DataStruct:
             s = s+ 'FAR on average: '+str(round(np.mean(fass),2))+', minimally '+str(round(np.min(fass),2))+', maximally '+str(round(np.max(fass),2))
             print(s)
         return self.overallper, min_gen, diffs, alltrain, alltest, fass 
-    
-    def DataForTest(self):
-        accuraciesUnseen = []
-        accuraciesSeen = []
-        farares = []
-        for result in self.otherRes:
-            _, seen, unseen, fass = result.getResult()
-            accuraciesSeen.extend(seen)
-            accuraciesUnseen.extend(unseen)
-            farares.extend(fass)
-        return accuraciesSeen, accuraciesUnseen, farares
-        
-    def Analysis(self):
-        good_perf = 0
-        av_perf = 0
-        bad_perf = 0
-        variances = np.array([0.0,0.0,0.0])
-        good_combis = []
-        bad_combis = []
-        for result in self.otherRes: #individual runs 
-            good, av, bad = result.getOverall()
-            good_perf = good_perf+good
-            av_perf = av_perf+av
-            bad_perf = bad_perf+bad
-            if good>0:
-                good_combis.append((result.getSeenIndex(),result.getUnseenIndex()))
-            elif bad>0:
-                bad_combis.append((result.getSeenIndex(),result.getUnseenIndex()))
-            elif av>0:
-                train, test, fas = result.getVariances()
-                if variances[0]==0.0: ## first entry, no averaging
-                    variances[0]=train
-                    variances[1]=test
-                    variances[2]=fas
-                else:
-                    variances[0]=(variances[0]+train)/2.0
-                    variances[1]=(variances[1]+test)/2.0
-                    variances[2]=(variances[2]+fas)/2.0
-        #we compute the square root of the variance to get the true Standard Deviation
-        return good_perf, av_perf, bad_perf, good_combis, bad_combis, np.sqrt(variances)
-    
-            
-            
