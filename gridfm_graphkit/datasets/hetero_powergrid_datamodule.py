@@ -8,7 +8,10 @@ from gridfm_graphkit.io.param_handler import (
     load_normalizer,
     get_task_transforms,
 )
-from gridfm_graphkit.datasets.utils import split_dataset
+from gridfm_graphkit.datasets.utils import (
+    split_dataset,
+    split_dataset_by_load_scenario_idx,
+)
 from gridfm_graphkit.datasets.powergrid_hetero_dataset import HeteroGridDatasetDisk
 import numpy as np
 import random
@@ -80,6 +83,11 @@ class LitGridHeteroDataModule(L.LightningDataModule):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = int(args.training.batch_size)
+        self.split_by_load_scenario_idx = getattr(
+            args.data,
+            "split_by_load_scenario_idx",
+            False,
+        )
         self.args = args
         self.data_normalizers = []
         self.datasets = []
@@ -136,16 +144,31 @@ class LitGridHeteroDataModule(L.LightningDataModule):
             random.seed(self.args.seed)
             random.shuffle(all_indices)
             subset_indices = all_indices[:num_scenarios]
+
+            # load_scenario for each scenario in the subset
+            load_scenarios = dataset.load_scenarios[subset_indices]
+
             dataset = Subset(dataset, subset_indices)
 
             # Random seed set before every split, same as above
             np.random.seed(self.args.seed)
-            train_dataset, val_dataset, test_dataset = split_dataset(
-                dataset,
-                self.data_dir,
-                self.args.data.val_ratio,
-                self.args.data.test_ratio,
-            )
+            if self.split_by_load_scenario_idx:
+                train_dataset, val_dataset, test_dataset = (
+                    split_dataset_by_load_scenario_idx(
+                        dataset,
+                        self.data_dir,
+                        load_scenarios,
+                        self.args.data.val_ratio,
+                        self.args.data.test_ratio,
+                    )
+                )
+            else:
+                train_dataset, val_dataset, test_dataset = split_dataset(
+                    dataset,
+                    self.data_dir,
+                    self.args.data.val_ratio,
+                    self.args.data.test_ratio,
+                )
 
             self.train_datasets.append(train_dataset)
             self.val_datasets.append(val_dataset)
