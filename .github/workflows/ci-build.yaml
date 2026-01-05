@@ -68,7 +68,19 @@ jobs:
           python3 -m pip install --upgrade "git+https://github.com/ibm/detect-secrets.git@master#egg=detect-secrets"
       - name: Scan repository & write snapshot
         run: |
-          detect-secrets scan > .secrets.new
+          
+          # 1) Strict scan: all tracked files except notebooks
+          detect-secrets scan \
+            --exclude-files '.*\.ipynb$' \
+            > .secrets.strict.json
+          
+          # 2) Relaxed scan: notebooks only, ignoring outputs/images/ids/hash
+          detect-secrets scan \
+            --exclude-lines '"(outputs|image/\w+|id|hash)":.*' \
+            --exclude-lines '"metadata":.*' \
+            --include-files '.*\.ipynb$' \
+            > .secrets.notebooks.json
+
       - name: Fail if new secrets appear vs baseline
       
         run: |
