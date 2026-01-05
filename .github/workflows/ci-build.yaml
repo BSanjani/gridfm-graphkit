@@ -71,7 +71,7 @@ jobs:
           
           # 1) Strict scan: all tracked files except notebooks
           detect-secrets scan \
-            --exclude-files '.*\.ipynb$' \
+            --exclude-files '*.ipynb' \
             > .secrets.strict.json
         
 
