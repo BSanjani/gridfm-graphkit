@@ -21,8 +21,8 @@ repos:
     rev: v3.2.0
     hooks:
     -   id: add-trailing-comma
--   repo: git+https://github.com/ibm/detect-secrets.git@master#egg=detect-secrets
-    rev: 0.13.1+ibm.62.dss
+-   repo: https://github.com/ibm/detect-secrets.git
+    rev: 1f70358329b1f5dbe444df5c35c424b706bf8260
     hooks:
         - id: detect-secrets # pragma: whitelist secret
         # Add options for detect-secrets-hook binary. You can run `detect-secrets-hook --help` to list out all possible options.
