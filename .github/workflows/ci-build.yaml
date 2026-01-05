@@ -73,12 +73,7 @@ jobs:
           detect-secrets scan \
             --exclude-files '.*\.ipynb$' \
             > .secrets.strict.json
-          
-          # 2) Relaxed scan: notebooks only, ignoring outputs/images/ids/hash
-          detect-secrets scan examples/notebooks \
-            --exclude-lines '"(outputs|image/\w+|id|hash)":.*' \
-            --exclude-lines '"metadata":.*' \
-            > .secrets.notebooks.json
+        
 
       - name: Fail if new secrets appear vs baseline
       
