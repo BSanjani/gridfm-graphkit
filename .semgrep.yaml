@@ -1,6 +1,4 @@
-
-# .semgrep.yaml
-# Goal: do not fail on torch.load(..)
+# Goal: do not fail on torch.load(..), for now
 
 rules:
   
