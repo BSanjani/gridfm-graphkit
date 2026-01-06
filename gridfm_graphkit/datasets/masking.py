@@ -35,6 +35,9 @@ from gridfm_graphkit.datasets.globals import (
     # Edge feature indices
     P_E,
     Q_E,
+    ANG_MIN,
+    ANG_MAX,
+    RATE_A,
 )
 from torch_geometric.utils import degree
 from torch_geometric.nn import MessagePassing
@@ -143,6 +146,9 @@ class AddPFHeteroMask(BaseTransform):
         )
         mask_branch[:, P_E] = True
         mask_branch[:, Q_E] = True
+        mask_branch[:, ANG_MIN] = True
+        mask_branch[:, ANG_MAX] = True
+        mask_branch[:, RATE_A] = True
 
         data.mask_dict = {
             "bus": mask_bus,

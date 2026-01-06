@@ -1,14 +1,11 @@
-callbacks:
-  patience: 100
-  tol: 0
 task:
-  task_name: PowerFlow
+  task_name: OptimalPowerFlow
 data:
   baseMVA: 100
   mask_value: 0.0
   normalization: HeteroDataMVANormalizer
   networks:
-  - case118_ieee
+  - case2000_goc
   scenarios:
   - 250000
   test_ratio: 0.1
@@ -31,20 +28,26 @@ optimizer:
   learning_rate: 0.0005
   lr_decay: 0.7
   lr_patience: 5
-seed: 0
 training:
-  batch_size: 64
+  batch_size: 4
   epochs: 200
   loss_weights:
   - 0.1
-  - 0.9
+  - 0.1
+  - 0.8
   losses:
   - LayeredWeightedPhysics
+  - MaskedGenMSE
   - MaskedBusMSE
   loss_args:
   - base_weight: 0.5
   - {}
+  - {}
   accelerator: auto
   devices: auto
   strategy: auto
+seed: 0
 verbose: true
+callbacks:
+  patience: 100
+  tol: 0

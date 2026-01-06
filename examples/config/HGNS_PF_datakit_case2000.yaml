@@ -8,7 +8,7 @@ data:
   mask_value: 0.0
   normalization: HeteroDataMVANormalizer
   networks:
-  - case118_ieee
+  - case2000_goc
   scenarios:
   - 250000
   test_ratio: 0.1
@@ -33,7 +33,7 @@ optimizer:
   lr_patience: 5
 seed: 0
 training:
-  batch_size: 64
+  batch_size: 4
   epochs: 200
   loss_weights:
   - 0.1
