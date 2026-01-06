@@ -114,7 +114,7 @@ jobs:
         run: |
           semgrep \
             --config=p/default \
-            --config=.semgrep.yml \
+            --config=.semgrep.yaml \
             --error \
             --baseline-commit "${{ github.event.pull_request.base.sha }}" \
             .
@@ -124,7 +124,7 @@ jobs:
         run: |
           semgrep \
             --config=p/default \
-            --config=.semgrep.yml \
+            --config=.semgrep.yaml \
             --error \
 
 
