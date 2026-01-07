@@ -74,7 +74,7 @@ jobs:
           detect-secrets scan \
             --exclude-files '.*\.ipynb$' \
             --exclude-lines '"(outputs|image/\w+|id|hash)":.*' \
-            > security-outputs/ds-results.json 2> security-outputs/ds-error.log
+            > security-outputs/ds-results.json 2> security-outputs/.secrets.new
 
         
        
