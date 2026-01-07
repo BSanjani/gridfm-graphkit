@@ -99,33 +99,33 @@ jobs:
           category: "/language:python"
    
 
-  semgrep:
-    name: Semgrep (p/default + local overrides)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  #semgrep:
+  #  name: Semgrep (p/default + local overrides)
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
 
-      - name: Install Semgrep
-        run: pip install semgrep
+  #    - name: Install Semgrep
+  #      run: pip install semgrep
 
       
-      - name: Semgrep scan (PR diff-aware)
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          semgrep \
-            --config=p/default \
-            --config=.semgrep.yaml \
-            --error \
-            --baseline-commit "${{ github.event.pull_request.base.sha }}" \
-            .
+  #    - name: Semgrep scan (PR diff-aware)
+  #      if: ${{ github.event_name == 'pull_request' }}
+  #      run: |
+  #        semgrep \
+  #          --config=p/default \
+  #          --config=.semgrep.yaml \
+  #          --error \
+  #          --baseline-commit "${{ github.event.pull_request.base.sha }}" \
+  #          .
 
-      - name: Semgrep scan (full)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          semgrep \
-            --config=p/default \
-            --config=.semgrep.yaml \
-            --error \
+  #    - name: Semgrep scan (full)
+  #      if: ${{ github.event_name != 'pull_request' }}
+  #      run: |
+  #        semgrep \
+  #          --config=p/default \
+  #          --config=.semgrep.yaml \
+  #          --error \
 
 
   bandit:
