@@ -111,11 +111,11 @@ class ReconstructionTask(BaseTask):
                 metric,
                 value,
                 batch_size=batch.num_graphs,
-                sync_dist=True,
-                on_epoch=True,
-                prog_bar=True,
+                sync_dist=False,
+                on_epoch=False,
+                prog_bar=False,
                 logger=True,
-                on_step=False,
+                on_step=True,
             )
 
         return loss_dict["loss"]

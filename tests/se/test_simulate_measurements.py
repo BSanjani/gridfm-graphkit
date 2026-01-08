@@ -4,6 +4,7 @@ from gridfm_graphkit.datasets.masking import SimulateMeasurements
 from gridfm_graphkit.datasets.normalizers import HeteroDataMVANormalizer
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from copy import deepcopy
+from torch_geometric.data import HeteroData
 from gridfm_graphkit.datasets.globals import (
     # Bus feature indices
     PD_H,
@@ -20,13 +21,14 @@ from gridfm_graphkit.datasets.globals import (
 
 
 def test_simulate_measurements():
-    data = torch.load(
+    data_dict = torch.load(
         "/dccstor/gridfm/opf_data/case14_ieee/processed/data_index_0.pt",
-        weights_only=False,
+        weights_only=True,
     )
+    data = HeteroData.from_dict(data_dict)
     node_stats = torch.load(
         "/dccstor/gridfm/opf_data/case14_ieee/processed/data_stats_HeteroDataMVANormalizer.pt",
-        weights_only=False,
+        weights_only=True,
     )
     with open("examples/config/HGNS_case14_SE.yaml", "r") as f:
         args = yaml.safe_load(f)

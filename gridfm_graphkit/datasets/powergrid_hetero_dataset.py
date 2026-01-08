@@ -53,9 +53,9 @@ class HeteroGridDatasetDisk(Dataset):
         load_scenarios_path = osp.join(self.processed_dir, "load_scenarios.pt")
 
         if osp.exists(data_stats_path) and osp.exists(load_scenarios_path):
-            self.data_stats = torch.load(data_stats_path, weights_only=False)
+            self.data_stats = torch.load(data_stats_path, weights_only=True)
             self.data_normalizer.fit_from_dict(self.data_stats)
-            self.load_scenarios = torch.load(load_scenarios_path, weights_only=False)
+            self.load_scenarios = torch.load(load_scenarios_path, weights_only=True)
 
     @property
     def raw_file_names(self):
@@ -232,7 +232,7 @@ class HeteroGridDatasetDisk(Dataset):
             data["scenario_id"] = torch.tensor([scenario], dtype=torch.long)
 
             # Save graph
-            torch.save(data, osp.join(self.processed_dir, f"data_index_{scenario}.pt"))
+            torch.save(data.to_dict(), osp.join(self.processed_dir, f"data_index_{scenario}.pt"))
 
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
             f.write("done")
@@ -259,6 +259,7 @@ class HeteroGridDatasetDisk(Dataset):
         )
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")
-        data = torch.load(file_name, weights_only=False)
+        data_dict = torch.load(file_name, weights_only=True)
+        data = HeteroData.from_dict(data_dict)
         self.data_normalizer.transform(data=data)
         return data

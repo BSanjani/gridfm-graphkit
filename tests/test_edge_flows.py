@@ -5,17 +5,19 @@ import yaml
 from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, PhysicsDecoderSE
 from gridfm_graphkit.training.loss import LossPerDim
 from gridfm_graphkit.datasets.globals import VM_H, VA_H, P_E, Q_E, VM_OUT, VA_OUT, PG_OUT, QG_OUT, QD_H, QG_H
+from torch_geometric.data import HeteroData
 
 
 def test_edge_flows():
-    data = torch.load(
+    data_dict = torch.load(
         "/dccstor/gridfm/powermodels_data/v2/opf/case118_ieee/processed/data_index_0.pt",
-        weights_only=False,
+        weights_only=True,
     )
+    data = HeteroData.from_dict(data_dict)
 
     node_stats = torch.load(
         "/dccstor/gridfm/powermodels_data/v2/opf/case118_ieee/processed/data_stats_HeteroDataMVANormalizer.pt",
-        weights_only=False,
+        weights_only=True,
     )
     with open("examples/config/HGNS_OPF_datakit_case118.yaml", "r") as f:
         args = yaml.safe_load(f)

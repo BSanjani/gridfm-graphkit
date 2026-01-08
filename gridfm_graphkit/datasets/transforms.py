@@ -4,7 +4,7 @@ from torch import Tensor
 from torch_geometric.transforms import BaseTransform
 from typing import Optional
 import torch_geometric.typing
-from torch_geometric.data import Data
+from torch_geometric.data import Data, HeteroData
 from torch_geometric.utils import (
     get_self_loop_attr,
     is_torch_sparse_tensor,
@@ -204,7 +204,7 @@ class LoadGridParamsFromPath(BaseTransform):
     def __init__(self, args):
         super().__init__()
         self.grid_path = args.task.grid_path
-        self.grid_data = torch.load(self.grid_path, weights_only=False)
+        self.grid_data = HeteroData.from_dict(torch.load(self.grid_path, weights_only=True))
 
         # Normalizer is needed in order to normalize the grid_data in case the input data is normalized
         self.normalizer = HeteroDataMVANormalizer(args)

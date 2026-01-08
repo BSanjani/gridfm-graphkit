@@ -158,19 +158,19 @@ class HeteroDataMVANormalizer(Normalizer):
         # Return all fitted parameters
         # ----------------------------------------------------
         return {
-            "baseMVA_orig": self.baseMVA_orig,
-            "baseMVA": self.baseMVA,
-            "vn_kv_max": self.vn_kv_max,
+            "baseMVA_orig": torch.tensor(self.baseMVA_orig, dtype=torch.float),
+            "baseMVA": torch.tensor(self.baseMVA, dtype=torch.float),
+            "vn_kv_max": torch.tensor(self.vn_kv_max, dtype=torch.float),
         }
 
     def fit_from_dict(self, params: dict):
         # Base MVA
         if self.baseMVA is None:
-            self.baseMVA = params.get("baseMVA")
-            self.baseMVA_orig = params.get("baseMVA_orig")
+            self.baseMVA = params.get("baseMVA").item()
+            self.baseMVA_orig = params.get("baseMVA_orig").item()
 
         # vn_kv
-        self.vn_kv_max = params.get("vn_kv_max")
+        self.vn_kv_max = params.get("vn_kv_max").item()
 
     def transform(self, data: HeteroData):
         if self.baseMVA is None or self.baseMVA == 0:
@@ -290,7 +290,7 @@ class HeteroDataMVANormalizer(Normalizer):
 
     def get_stats(self) -> dict:
         return {
-            "baseMVA": self.baseMVA,
-            "baseMVA_orig": self.baseMVA_orig,
-            "vn_kv_max": self.vn_kv_max,
+            "baseMVA_orig": torch.tensor(self.baseMVA_orig, dtype=torch.float),
+            "baseMVA": torch.tensor(self.baseMVA, dtype=torch.float),
+            "vn_kv_max": torch.tensor(self.vn_kv_max, dtype=torch.float),
         }
