@@ -73,4 +73,3 @@ training:
   devices: auto
   strategy: auto
 verbose: true
-

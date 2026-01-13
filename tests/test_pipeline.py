@@ -58,11 +58,16 @@ def test_cli_commands(parser, config, command):
     """
     args_list = [
         command,
-        "--config", config,
-        "--data_path", DATA_PATH,
-        "--log_dir", LOG_DIR,
-        "--exp_name", EXP_NAME,
-        "--run_name", RUN_NAME,
+        "--config",
+        config,
+        "--data_path",
+        DATA_PATH,
+        "--log_dir",
+        LOG_DIR,
+        "--exp_name",
+        EXP_NAME,
+        "--run_name",
+        RUN_NAME,
     ]
 
     if command in ["finetune", "evaluate"]:
@@ -85,11 +90,16 @@ def test_entrypoint_train(config):
     test_argv = [
         "gridfm_graphkit",
         "train",
-        "--config", config,
-        "--data_path", DATA_PATH,
-        "--log_dir", LOG_DIR,
-        "--exp_name", EXP_NAME,
-        "--run_name", RUN_NAME,
+        "--config",
+        config,
+        "--data_path",
+        DATA_PATH,
+        "--log_dir",
+        LOG_DIR,
+        "--exp_name",
+        EXP_NAME,
+        "--run_name",
+        RUN_NAME,
     ]
 
     with mock.patch.object(sys, "argv", test_argv):

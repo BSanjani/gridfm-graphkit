@@ -5,6 +5,7 @@ import seaborn as sns
 import numpy as np
 import os
 
+
 def residual_stats_by_type(residual, mask, bus_batch):
     residual_masked = residual[mask]
     batch_masked = bus_batch[mask]

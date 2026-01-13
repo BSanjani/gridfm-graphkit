@@ -24,7 +24,6 @@ from lightning.pytorch.loggers import MLFlowLogger
 import os
 
 
-
 @TASK_REGISTRY.register("StateEstimation")
 class StateEstimationTask(ReconstructionTask):
     def __init__(self, args, data_normalizers):
