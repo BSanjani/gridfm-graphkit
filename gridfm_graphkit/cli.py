@@ -2,11 +2,9 @@ from gridfm_graphkit.datasets.hetero_powergrid_datamodule import LitGridHeteroDa
 from gridfm_graphkit.io.param_handler import NestedNamespace
 from gridfm_graphkit.training.callbacks import SaveBestModelStateDict
 import numpy as np
-import os
 import yaml
 import torch
 import random
-import pandas as pd
 
 from gridfm_graphkit.io.param_handler import get_task
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
@@ -79,52 +77,5 @@ def main_cli(args):
     if args.command != "predict":
         trainer.test(model=model, datamodule=litGrid)
 
-    if args.command == "predict":
-        predictions = trainer.predict(model=model, datamodule=litGrid)
-        all_outputs = []
-        all_mask_PQ = []
-        all_mask_PV = []
-        all_mask_REF = []
-        all_scenarios = []
-        all_bus_numbers = []
-
-        for batch in predictions:
-            all_outputs.append(batch["output"])
-            all_mask_PQ.append(batch["mask_PQ"])
-            all_mask_PV.append(batch["mask_PV"])
-            all_mask_REF.append(batch["mask_REF"])
-            all_scenarios.append(batch["scenario_id"])
-            all_bus_numbers.append(batch["bus_number"])
-
-        # Concatenate all
-        outputs = np.concatenate(all_outputs, axis=0)  # shape: [num_nodes, 6]
-        mask_PQ = np.concatenate(all_mask_PQ, axis=0)
-        mask_PV = np.concatenate(all_mask_PV, axis=0)
-        mask_REF = np.concatenate(all_mask_REF, axis=0)
-        scenario_ids = np.concatenate(all_scenarios, axis=0)
-        bus_numbers = np.concatenate(all_bus_numbers, axis=0)
-
-        # Build DataFrame
-        df = pd.DataFrame(
-            {
-                "scenario": scenario_ids,
-                "bus": bus_numbers,
-                "PD": outputs[:, 0],
-                "QD": outputs[:, 1],
-                "PG": outputs[:, 2],
-                "QG": outputs[:, 3],
-                "VM": outputs[:, 4],
-                "VA": outputs[:, 5],
-                "PQ": mask_PQ.astype(int),
-                "PV": mask_PV.astype(int),
-                "REF": mask_REF.astype(int),
-            },
-        )
-
-        # Save CSV
-        output_dir = os.path.join(args.output_path)
-        os.makedirs(output_dir, exist_ok=True)
-        csv_path = os.path.join(output_dir, "predictions.csv")
-        df.to_csv(csv_path, index=False)
-
-        print(f"Saved predictions to {csv_path}")
+    # if args.command == "predict":
+    # TODO
