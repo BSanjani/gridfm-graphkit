@@ -18,7 +18,6 @@ task:
       outlier_ratio: 0.1
       std: 0.02
   relative_measurement: true
-  #grid_path: /dccstor/gridfm/hector/data/perturbations-3/case14_ieee/perturbation_0.0_0/case14_ieee/processed/data_index_0.pt
 data:
   baseMVA: 100
   mask_value: 0.0
@@ -50,7 +49,7 @@ optimizer:
 seed: 0
 training:
   batch_size: 32
-  epochs: 1
+  epochs: 200
   losses:
   - LossPerDim
   - LossPerDim

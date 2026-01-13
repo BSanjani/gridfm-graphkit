@@ -1,4 +1,3 @@
-from gridfm_graphkit.training.utils import PowerFlowResidualLayerHomo
 import torch.nn.functional as F
 import torch
 import torch.nn as nn
@@ -76,43 +75,6 @@ class MaskedMSELoss(BaseLoss):
     ):
         loss = F.mse_loss(pred[mask], target[mask], reduction=self.reduction)
         return {"loss": loss, "Masked MSE loss": loss.detach()}
-
-
-@LOSS_REGISTRY.register("MaskedOPFHetero")
-class MaskedOPFHeteroLoss(torch.nn.Module):
-    """Masked OPF loss for heterogeneous graphs (bus + generator level)."""
-
-    def __init__(self, loss_args, args):
-        super().__init__()
-        self.reduction = "mean"
-
-    def forward(
-        self,
-        pred_dict,
-        target_dict,
-        edge_index,
-        edge_attr,
-        mask_dict,
-        model=None,
-    ):
-        # Bus-level loss
-        bus_loss = F.mse_loss(
-            pred_dict["bus"][mask_dict["bus"][:, : (VA_H + 1)]],
-            target_dict["bus"][mask_dict["bus"][:, : (VA_H + 1)]],
-            reduction=self.reduction,
-        )
-
-        # Generator-level loss
-        gen_loss = F.mse_loss(
-            pred_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
-            target_dict["gen"][mask_dict["gen"][:, : (PG_H + 1)]],
-            reduction=self.reduction,
-        )
-
-        # Combine losses (simple average)
-        combined_loss = (bus_loss + gen_loss) / 2.0
-
-        return {"loss": combined_loss, "Masked MSE loss": combined_loss.detach()}
 
 
 @LOSS_REGISTRY.register("MaskedGenMSE")
@@ -193,48 +155,6 @@ class MSELoss(BaseLoss):
     ):
         loss = F.mse_loss(pred, target, reduction=self.reduction)
         return {"loss": loss, "MSE loss": loss.detach()}
-
-
-@LOSS_REGISTRY.register("PBE")
-class PBELoss(BaseLoss):
-    def __init__(self, loss_args, args):
-        super().__init__()
-        self.visualization = args.verbose
-
-    def forward(self, pred, target, edge_index, edge_attr, mask, model=None):
-        layer = PowerFlowResidualLayerHomo()
-        residual_complex = layer(
-            pred,
-            edge_index,
-            edge_attr,
-            mask,
-            target,
-        )
-
-        loss = torch.mean(torch.abs(residual_complex))
-        real_loss = torch.mean(torch.abs(torch.real(residual_complex)))
-        imag_loss = torch.mean(torch.abs(torch.imag(residual_complex)))
-
-        result = {
-            "loss": loss,
-            "Power loss": loss.detach(),
-            "Active Power Loss": real_loss.detach(),
-            "Reactive Power Loss": imag_loss.detach(),
-        }
-
-        if self.visualization:
-            result.update(
-                {
-                    "Nodal Active Power Loss": torch.abs(
-                        torch.real(residual_complex),
-                    ),
-                    "Nodal Reactive Power Loss": torch.abs(
-                        torch.imag(residual_complex),
-                    ),
-                },
-            )
-
-        return result
 
 
 class MixedLoss(BaseLoss):

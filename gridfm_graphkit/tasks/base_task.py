@@ -1,4 +1,3 @@
-# base_task.py
 import os
 from abc import ABC, abstractmethod
 import lightning as L

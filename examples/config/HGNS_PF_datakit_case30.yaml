@@ -10,10 +10,10 @@ data:
   networks:
   - case30_ieee
   scenarios:
-  - 250000
+  - 100
   test_ratio: 0.1
   val_ratio: 0.1
-  workers: 32
+  workers: 1
   split_by_load_scenario_idx: true
 model:
   attention_head: 8
@@ -33,7 +33,7 @@ optimizer:
   lr_patience: 5
 seed: 0
 training:
-  batch_size: 64
+  batch_size: 16
   epochs: 200
   loss_weights:
   - 0.1

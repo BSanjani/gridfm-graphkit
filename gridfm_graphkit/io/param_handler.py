@@ -1,7 +1,6 @@
 import torch
 from gridfm_graphkit.training.loss import MixedLoss
 from gridfm_graphkit.io.registries import (
-    MASKING_REGISTRY,
     NORMALIZERS_REGISTRY,
     MODELS_REGISTRY,
     LOSS_REGISTRY,
@@ -126,18 +125,6 @@ def load_model(args) -> torch.nn.Module:
         return MODELS_REGISTRY.create(model_type, args)
     except KeyError:
         raise ValueError(f"Unknown model type: {model_type}")
-
-
-def get_transform(args):
-    """
-    Load the appropriate dataset transform from the registry.
-    """
-    mask_type = args.data.mask_type
-
-    try:
-        return MASKING_REGISTRY.create(mask_type, args)
-    except KeyError:
-        raise ValueError(f"Unknown transformation: {mask_type}")
 
 
 def get_task_transforms(args) -> Compose:

@@ -2,24 +2,33 @@ import torch
 from gridfm_graphkit.datasets.normalizers import HeteroDataMVANormalizer
 from gridfm_graphkit.io.param_handler import NestedNamespace
 import yaml
-from gridfm_graphkit.models.utils import ComputeBranchFlow, ComputeNodeInjection, PhysicsDecoderSE
+from gridfm_graphkit.models.utils import (
+    ComputeBranchFlow,
+    ComputeNodeInjection,
+    PhysicsDecoderSE,
+)
 from gridfm_graphkit.training.loss import LossPerDim
-from gridfm_graphkit.datasets.globals import VM_H, VA_H, P_E, Q_E, VM_OUT, VA_OUT, PG_OUT, QG_OUT, QD_H, QG_H
+from gridfm_graphkit.datasets.globals import (
+    VM_H,
+    VA_H,
+    P_E,
+    Q_E,
+)
 from torch_geometric.data import HeteroData
 
 
 def test_edge_flows():
     data_dict = torch.load(
-        "/dccstor/gridfm/powermodels_data/v2/opf/case118_ieee/processed/data_index_0.pt",
+        "tests/data/case14_ieee/processed/data_index_0.pt",
         weights_only=True,
     )
     data = HeteroData.from_dict(data_dict)
 
     node_stats = torch.load(
-        "/dccstor/gridfm/powermodels_data/v2/opf/case118_ieee/processed/data_stats_HeteroDataMVANormalizer.pt",
+        "tests/data/case14_ieee/processed/data_stats_HeteroDataMVANormalizer.pt",
         weights_only=True,
     )
-    with open("examples/config/HGNS_OPF_datakit_case118.yaml", "r") as f:
+    with open("tests/config/datamodule_test_base_config.yaml", "r") as f:
         args = yaml.safe_load(f)
     args = NestedNamespace(**args)
     normalizer = HeteroDataMVANormalizer(args)
@@ -45,27 +54,63 @@ def test_edge_flows():
         Pft,
         Qft,
         bus_edge_index,
-        data['bus'].x.size(0),
+        data["bus"].x.size(0),
     )
 
     output_temp = physics_decoder(
         P_in,
         Q_in,
-        data['bus'].y[:, [VM_H, VA_H]],
-        data['bus'].x,
+        data["bus"].y[:, [VM_H, VA_H]],
+        data["bus"].x,
         None,
         None,
     )
 
     pred_dict = {"bus": output_temp, "gen": data["gen"].y}
-    target_dict = {"bus": data['bus'].y, "gen": data["gen"].y}
-    edge_index = {("gen", "connected_to", "bus"): data[("gen", "connected_to", "bus")].edge_index}
-    assert LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "VM"}), None)(pred_dict, target_dict, edge_index, None, None)['loss'] < 1e-4
-    assert LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "VA"}), None)(pred_dict, target_dict, edge_index, None, None)['loss'] < 1e-4
-    assert LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "P_in"}), None)(pred_dict, target_dict, edge_index, None, None)['loss'] < 1e-4
-    assert LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "Q_in"}), None)(pred_dict, target_dict, edge_index, None, None)['loss'] < 1e-4
-
-
+    target_dict = {"bus": data["bus"].y, "gen": data["gen"].y}
+    edge_index = {
+        ("gen", "connected_to", "bus"): data[("gen", "connected_to", "bus")].edge_index,
+    }
+    assert (
+        LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "VM"}), None)(
+            pred_dict,
+            target_dict,
+            edge_index,
+            None,
+            None,
+        )["loss"]
+        < 1e-4
+    )
+    assert (
+        LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "VA"}), None)(
+            pred_dict,
+            target_dict,
+            edge_index,
+            None,
+            None,
+        )["loss"]
+        < 1e-4
+    )
+    assert (
+        LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "P_in"}), None)(
+            pred_dict,
+            target_dict,
+            edge_index,
+            None,
+            None,
+        )["loss"]
+        < 1e-4
+    )
+    assert (
+        LossPerDim(NestedNamespace(**{"loss_str": "MAE", "dim": "Q_in"}), None)(
+            pred_dict,
+            target_dict,
+            edge_index,
+            None,
+            None,
+        )["loss"]
+        < 1e-4
+    )
 
     print("hi")
 

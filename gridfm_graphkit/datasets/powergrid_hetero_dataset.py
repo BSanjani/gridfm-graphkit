@@ -3,12 +3,12 @@ from gridfm_graphkit.datasets.normalizers import Normalizer
 import os.path as osp
 import os
 import torch
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Dataset
 import pandas as pd
 from tqdm import tqdm
 from typing import Optional, Callable
 from torch_geometric.data import HeteroData
-from gridfm_graphkit.datasets.globals import *
+from gridfm_graphkit.datasets.globals import VA_H, PG_H
 
 
 class HeteroGridDatasetDisk(Dataset):
@@ -63,7 +63,7 @@ class HeteroGridDatasetDisk(Dataset):
 
     @property
     def processed_done_file(self):
-        return f"processed_raw_files.done"
+        return "processed_raw_files.done"
 
     @property
     def processed_file_names(self):
@@ -85,7 +85,7 @@ class HeteroGridDatasetDisk(Dataset):
         load_scenarios = torch.tensor(
             bus_data.groupby("scenario")["load_scenario_idx"].first().values,
         )
-        torch.save(load_scenarios, osp.join(self.processed_dir, f"load_scenarios.pt"))
+        torch.save(load_scenarios, osp.join(self.processed_dir, "load_scenarios.pt"))
 
         agg_gen = (
             gen_data.groupby(["scenario", "bus"])[["min_q_mvar", "max_q_mvar"]]
@@ -232,12 +232,13 @@ class HeteroGridDatasetDisk(Dataset):
             data["scenario_id"] = torch.tensor([scenario], dtype=torch.long)
 
             # Save graph
-            torch.save(data.to_dict(), osp.join(self.processed_dir, f"data_index_{scenario}.pt"))
+            torch.save(
+                data.to_dict(),
+                osp.join(self.processed_dir, f"data_index_{scenario}.pt"),
+            )
 
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
             f.write("done")
-
-        assert False
 
     def len(self):
         if self.length is None:
@@ -245,7 +246,7 @@ class HeteroGridDatasetDisk(Dataset):
                 f
                 for f in os.listdir(self.processed_dir)
                 if f.startswith(
-                    f"data_index_",
+                    "data_index_",
                 )
                 and f.endswith(".pt")
             ]
