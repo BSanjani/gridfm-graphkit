@@ -70,7 +70,7 @@ jobs:
       - name: Scan repository & write snapshot
         run: |
           mkdir -p security-outputs
-          # Run the scan; send stderr to a log; stdout to JSON
+          # Run the scan; send stderr to a log; stdout to JSON 
           detect-secrets scan \
             --exclude-files '.*\.ipynb$' \
             --exclude-lines '"(outputs|image/\w+|id|hash)":.*' \
