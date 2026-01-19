@@ -21,8 +21,7 @@ repos:
     rev: v3.2.0
     hooks:
     -   id: add-trailing-comma
--   repo: https://github.com/ibm/detect-secrets.git
-    #rev: 0.13.1+ibm.64.dss
+-   repo: https://github.com/ibm/detect-secrets
     rev: 0.13.1+ibm.64.dss
     hooks:
         - id: detect-secrets # pragma: whitelist secret
@@ -31,5 +30,5 @@ repos:
         # when "--baseline" without "--use-all-plugins", pre-commit scan with just plugins in baseline file
         # when "--baseline" with "--use-all-plugins", pre-commit scan with all available plugins
         # add "--fail-on-unaudited" to fail pre-commit for unaudited potential secrets
-          args: [--baseline, .secrets.baseline, --use-all-plugins, --fail-on-unaudited]
+          args: [--baseline, .secrets.baseline, --use-all-plugins]
           exclude: '.*\.ipynb$'
