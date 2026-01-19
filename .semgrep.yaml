@@ -1,9 +1,9 @@
 # Goal: do not fail on torch.load(..), for now
 
 rules:
-  
+
   - id: python.deserialization.pickle
- 
+
     # 👇 Exclude torch.load from this rule so it won't be reported as ERROR:
     pattern-not: |
       torch.load(...)
@@ -14,4 +14,3 @@ rules:
     languages: [python]
     severity: INFO
     pattern: |
-     
