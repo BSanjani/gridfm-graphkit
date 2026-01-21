@@ -1,0 +1,10 @@
+# IEEE RTS 24 Bus System Configuration
+gridfm-datakit generate examples/config_pf_case24.yaml --output case24_ieee_rts.yaml
+# The IEEE RTS 24 bus system is a standard test case for power flow analysis.
+# This configuration file defines the buses, generators, loads, and transmission lines
+# for the IEEE RTS 24 bus system in YAML format.
+# It can be used with GridFM for simulation and analysis purposes.
+# The file includes detailed parameters for each component to accurately represent
+# the electrical characteristics of the system.
+# For more information on the IEEE RTS 24 bus system, refer to:
+# https://ieeexplore.ieee.org/document/7960709
