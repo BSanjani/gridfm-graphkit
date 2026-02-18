@@ -14,6 +14,7 @@ import numpy as np
 import random
 import warnings
 import os
+import json
 import lightning as L
 
 
@@ -131,30 +132,49 @@ class LitGridDataModule(L.LightningDataModule):
             )
             self.datasets.append(dataset)
 
-            num_scenarios = self.args.data.scenarios[i]
-            if num_scenarios > len(dataset):
-                warnings.warn(
-                    f"Requested number of scenarios ({num_scenarios}) exceeds dataset size ({len(dataset)}). "
-                    "Using the full dataset instead.",
+            split_file = os.path.join(data_path_network, "scenario_split.json")
+            if os.path.exists(split_file):
+                with open(split_file, "r") as f:
+                    split_cfg = json.load(f)
+
+                train_indices = split_cfg.get("train", [])
+                val_indices = split_cfg.get("val", [])
+                test_indices = split_cfg.get("test", [])
+                max_idx = len(dataset) - 1
+                all_requested = train_indices + val_indices + test_indices
+                if any((idx < 0 or idx > max_idx) for idx in all_requested):
+                    raise ValueError(
+                        f"Scenario split in {split_file} contains out-of-range indices for dataset size {len(dataset)}.",
+                    )
+
+                train_dataset = Subset(dataset, train_indices)
+                val_dataset = Subset(dataset, val_indices)
+                test_dataset = Subset(dataset, test_indices)
+            else:
+                num_scenarios = self.args.data.scenarios[i]
+                if num_scenarios > len(dataset):
+                    warnings.warn(
+                        f"Requested number of scenarios ({num_scenarios}) exceeds dataset size ({len(dataset)}). "
+                        "Using the full dataset instead.",
+                    )
+                    num_scenarios = len(dataset)
+
+                # Create a subset
+                all_indices = list(range(len(dataset)))
+                # Random seed set before every shuffle for reproducibility in case the power grid datasets are analyzed in a different order
+                random.seed(self.args.seed)
+                random.shuffle(all_indices)
+                subset_indices = all_indices[:num_scenarios]
+                dataset = Subset(dataset, subset_indices)
+
+                # Random seed set before every split, same as above
+                np.random.seed(self.args.seed)
+                train_dataset, val_dataset, test_dataset = split_dataset(
+                    dataset,
+                    self.data_dir,
+                    self.args.data.val_ratio,
+                    self.args.data.test_ratio,
                 )
-                num_scenarios = len(dataset)
-
-            # Create a subset
-            all_indices = list(range(len(dataset)))
-            # Random seed set before every shuffle for reproducibility in case the power grid datasets are analyzed in a different order
-            random.seed(self.args.seed)
-            random.shuffle(all_indices)
-            subset_indices = all_indices[:num_scenarios]
-            dataset = Subset(dataset, subset_indices)
-
-            # Random seed set before every split, same as above
-            np.random.seed(self.args.seed)
-            train_dataset, val_dataset, test_dataset = split_dataset(
-                dataset,
-                self.data_dir,
-                self.args.data.val_ratio,
-                self.args.data.test_ratio,
-            )
 
             self.train_datasets.append(train_dataset)
             self.val_datasets.append(val_dataset)
