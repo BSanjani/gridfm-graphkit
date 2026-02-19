@@ -67,6 +67,7 @@ def main_cli(args):
         state_dict = torch.load(args.model_path)
         model.load_state_dict(state_dict)
 
+    disable_tqdm = os.environ.get("GRIDKIT_DISABLE_TQDM", "0") == "1"
     trainer = L.Trainer(
         logger=logger,
         accelerator=config_args.training.accelerator,
@@ -76,6 +77,7 @@ def main_cli(args):
         default_root_dir=args.log_dir,
         max_epochs=config_args.training.epochs,
         callbacks=get_training_callbacks(config_args),
+        enable_progress_bar=not disable_tqdm,
     )
     if args.command == "train" or args.command == "finetune":
         trainer.fit(model=model, datamodule=litGrid)
