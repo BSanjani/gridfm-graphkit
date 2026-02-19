@@ -1,0 +1,53 @@
+name: case24_ieee_rts_s10000_droop_mprange_mqrange
+source: gridfm-datakit
+notes:
+  - PF dataset with droop enabled and randomized mp/mq per scenario.
+  - Prepared for GraphKit ingestion.
+  - Scenario split is fixed and provided.
+
+data:
+  root: graphkit_data/case24_ieee_rts_s10000_droop_mprange_mqrange
+  node_file: raw/pf_node.csv
+  edge_file: raw/pf_edge.csv
+  split_file: scenario_split.json
+
+counts:
+  scenarios: 10000
+  buses: 24
+  node_rows: 240000
+  edge_rows: 920000
+
+node_columns:
+  - scenario
+  - bus
+  - Pd
+  - Qd
+  - Pg
+  - Qg
+  - Vm
+  - Va
+  - PQ
+  - PV
+  - REF
+  - mp_droop
+  - mq_droop
+  - frequency_deadband
+  - voltage_deadband
+
+edge_columns:
+  - scenario
+  - index1
+  - index2
+  - G
+  - B
+
+droop_input_features:
+  - mp_droop
+  - mq_droop
+  - frequency_deadband
+  - voltage_deadband
+
+split:
+  train: [0..7999]
+  val: [8000..8999]
+  test: [9000..9999]
