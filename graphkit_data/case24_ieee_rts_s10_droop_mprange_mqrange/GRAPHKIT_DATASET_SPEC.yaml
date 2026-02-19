@@ -29,6 +29,10 @@ node_columns:
   - PQ
   - PV
   - REF
+  - mp_droop
+  - mq_droop
+  - frequency_deadband
+  - voltage_deadband
 
 edge_columns:
   - scenario
@@ -36,6 +40,12 @@ edge_columns:
   - index2
   - G
   - B
+
+droop_input_features:
+  - mp_droop
+  - mq_droop
+  - frequency_deadband
+  - voltage_deadband
 
 split:
   train: [0,1,2,3,4,5,6,7]

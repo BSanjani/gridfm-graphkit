@@ -14,7 +14,7 @@ data:
   workers: 0
 model:
   type: "GNN_TransformerConv"
-  input_dim: 9
+  input_dim: 13
   output_dim: 6
   edge_dim: 2
   pe_dim: 20

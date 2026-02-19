@@ -49,6 +49,7 @@ class GridDatasetDisk(Dataset):
         self.edge_normalizer = edge_normalizer
         self.pe_dim = pe_dim
         self.mask_dim = mask_dim
+        self.process_version = "v2"
         self.length = None
 
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -74,7 +75,7 @@ class GridDatasetDisk(Dataset):
 
     @property
     def processed_done_file(self):
-        return f"processed_{self.norm_method}_{self.mask_dim}_{self.pe_dim}.done"
+        return f"processed_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_{self.process_version}.done"
 
     @property
     def processed_file_names(self):
@@ -137,13 +138,20 @@ class GridDatasetDisk(Dataset):
         node_groups = node_df.groupby("scenario")
         edge_groups = edge_df.groupby("scenario")
 
+        base_input_cols = ["Pd", "Qd", "Pg", "Qg", "Vm", "Va", "PQ", "PV", "REF"]
+        optional_input_cols = [
+            "mp_droop",
+            "mq_droop",
+            "frequency_deadband",
+            "voltage_deadband",
+        ]
+        x_cols = base_input_cols + [c for c in optional_input_cols if c in node_df.columns]
+
         for scenario_idx in tqdm(scenarios):
             # NODE DATA
             node_data = node_groups.get_group(scenario_idx)
             x = torch.tensor(
-                node_data[
-                    ["Pd", "Qd", "Pg", "Qg", "Vm", "Va", "PQ", "PV", "REF"]
-                ].values,
+                node_data[x_cols].values,
                 dtype=torch.float,
             )
             y = x[:, : self.mask_dim]
@@ -175,7 +183,7 @@ class GridDatasetDisk(Dataset):
                 graph_data,
                 osp.join(
                     self.processed_dir,
-                    f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_index_{scenario_idx}.pt",
+                    f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_{self.process_version}_index_{scenario_idx}.pt",
                 ),
             )
         with open(osp.join(self.processed_dir, self.processed_done_file), "w") as f:
@@ -187,7 +195,7 @@ class GridDatasetDisk(Dataset):
                 f
                 for f in os.listdir(self.processed_dir)
                 if f.startswith(
-                    f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_index_",
+                    f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_{self.process_version}_index_",
                 )
                 and f.endswith(".pt")
             ]
@@ -197,7 +205,7 @@ class GridDatasetDisk(Dataset):
     def get(self, idx):
         file_name = osp.join(
             self.processed_dir,
-            f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_index_{idx}.pt",
+            f"data_{self.norm_method}_{self.mask_dim}_{self.pe_dim}_{self.process_version}_index_{idx}.pt",
         )
         if not osp.exists(file_name):
             raise IndexError(f"Data file {file_name} does not exist.")

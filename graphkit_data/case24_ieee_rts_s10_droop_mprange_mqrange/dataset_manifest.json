@@ -16,7 +16,11 @@
     "Va",
     "PQ",
     "PV",
-    "REF"
+    "REF",
+    "mp_droop",
+    "mq_droop",
+    "frequency_deadband",
+    "voltage_deadband"
   ],
   "edge_columns": [
     "scenario",
@@ -42,5 +46,11 @@
     "test": [
       9
     ]
-  }
+  },
+  "droop_input_features": [
+    "mp_droop",
+    "mq_droop",
+    "frequency_deadband",
+    "voltage_deadband"
+  ]
 }
