@@ -128,6 +128,18 @@ class FeatureReconstructionTask(L.LightningModule):
         )
         return output, loss_dict
 
+    @staticmethod
+    def _fill_unmasked_with_target(pred, target, mask):
+        """
+        For reconstruction tasks, keep model outputs only on masked entries.
+        Unmasked entries are copied from target to avoid unconstrained drift.
+        """
+        if mask is None:
+            return pred
+        reconstructed = pred.clone()
+        reconstructed[~mask] = target[~mask]
+        return reconstructed
+
     def training_step(self, batch):
         _, loss_dict = self.shared_step(batch)
         current_lr = self.optimizer.param_groups[0]["lr"]
@@ -168,6 +180,7 @@ class FeatureReconstructionTask(L.LightningModule):
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         output, loss_dict = self.shared_step(batch)
+        output = self._fill_unmasked_with_target(output, batch.y, batch.mask)
 
         dataset_name = self.args.data.networks[dataloader_idx]
 
@@ -241,6 +254,7 @@ class FeatureReconstructionTask(L.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         output, _ = self.shared_step(batch)
+        output = self._fill_unmasked_with_target(output, batch.y, batch.mask)
         output_denorm = self.node_normalizers[dataloader_idx].inverse_transform(output)
 
         # Count buses and generate per-node scenario_id

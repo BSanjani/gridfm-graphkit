@@ -1,0 +1,5 @@
+experiment_id: 902243169851258505
+train_run_id: 50e4582e425443cc9306b553afb01bb1
+predict_output: outputs/case24_rts_s10000_droop_gnn_100ep_v1/predictions.csv
+test_scenarios_count: 1000
+test_scenarios_minmax: 9000-9999
